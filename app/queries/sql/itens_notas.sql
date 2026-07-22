@@ -1,0 +1,204 @@
+SELECT
+    CAB.NUNOTA,
+    CAB.NUMNOTA,
+    CAB.DTNEG,
+    CAB.CODEMP,
+
+    CAB.CODPROJ,
+    PRJ.IDENTIFICACAO AS PROJETO,
+
+    CAB.CODPARC,
+    PAR.RAZAOSOCIAL AS PARCEIRO,
+    PAR.CGC_CPF,
+
+    CAB.CODTIPOPER,
+    TOP.DESCROPER,
+
+    CASE
+        WHEN CAB.CODTIPOPER IN (1101, 1164, 1166)
+            THEN 'VENDA'
+        WHEN CAB.CODTIPOPER IN (1201, 1202, 1257, 1206)
+            THEN 'DEVOLUCAO'
+    END AS TIPO_MOVIMENTO,
+
+    CAB.CODTIPVENDA,
+    TPV.DESCRTIPVENDA AS TIPO_NEGOCIACAO,
+
+    ITE.SEQUENCIA,
+    ITE.CODPROD,
+    PRO.DESCRPROD,
+    ITE.CODVOL AS UNIDADE,
+
+    ITE.QTDNEG,
+    ITE.VLRUNIT,
+    ITE.VLRTOT,
+
+    NVL(ITE.VLRDESC, 0) AS VLR_DESCONTO_ITEM,
+
+    ROUND(
+        NVL(ITE.VLRTOT, 0)
+        - NVL(ITE.VLRDESC, 0),
+        2
+    ) AS VLR_ITEM_LIQUIDO,
+
+    NVL(ITE.BASEICMS, 0) AS BASE_ICMS,
+    NVL(ITE.ALIQICMS, 0) AS ALIQ_ICMS,
+    NVL(ITE.VLRICMS, 0) AS VLR_ICMS,
+
+    NVL(IMP.BASE_PIS, 0) AS BASE_PIS,
+    NVL(IMP.ALIQ_PIS, 0) AS ALIQ_PIS,
+    NVL(IMP.VLR_PIS, 0) AS VLR_PIS,
+
+    NVL(IMP.BASE_COFINS, 0) AS BASE_COFINS,
+    NVL(IMP.ALIQ_COFINS, 0) AS ALIQ_COFINS,
+    NVL(IMP.VLR_COFINS, 0) AS VLR_COFINS,
+
+    ROUND(
+          NVL(ITE.VLRICMS, 0)
+        + NVL(IMP.VLR_PIS, 0)
+        + NVL(IMP.VLR_COFINS, 0),
+        2
+    ) AS VLR_IMPOSTOS_ITEM,
+
+    CUS.DTATUAL AS DATA_CUSTO,
+
+    NVL(
+        CUS.CUSSEMICM,
+        0
+    ) AS CUSTO_MEDIO_SEM_ICMS_UNIT,
+
+    ROUND(
+        NVL(ITE.QTDNEG, 0)
+        * NVL(CUS.CUSSEMICM, 0),
+        2
+    ) AS CUSTO_MEDIO_SEM_ICMS_TOTAL,
+
+    ROUND(
+          NVL(ITE.VLRTOT, 0)
+        - NVL(ITE.VLRDESC, 0)
+        - NVL(ITE.VLRICMS, 0)
+        - NVL(IMP.VLR_PIS, 0)
+        - NVL(IMP.VLR_COFINS, 0)
+        - (
+            NVL(ITE.QTDNEG, 0)
+            * NVL(CUS.CUSSEMICM, 0)
+        ),
+        2
+    ) AS RESULTADO_ITEM_APOS_CUSTO
+
+FROM TGFCAB CAB
+
+INNER JOIN TGFITE ITE
+        ON ITE.NUNOTA = CAB.NUNOTA
+
+LEFT JOIN TGFPRO PRO
+       ON PRO.CODPROD = ITE.CODPROD
+
+LEFT JOIN (
+    SELECT
+        DIN.NUNOTA,
+        DIN.SEQUENCIA,
+
+        SUM(
+            CASE
+                WHEN DIN.CODIMP = 6
+                    THEN NVL(DIN.BASE, 0)
+                ELSE 0
+            END
+        ) AS BASE_PIS,
+
+        MAX(
+            CASE
+                WHEN DIN.CODIMP = 6
+                    THEN NVL(DIN.ALIQUOTA, 0)
+                ELSE 0
+            END
+        ) AS ALIQ_PIS,
+
+        SUM(
+            CASE
+                WHEN DIN.CODIMP = 6
+                    THEN NVL(DIN.VALOR, 0)
+                ELSE 0
+            END
+        ) AS VLR_PIS,
+
+        SUM(
+            CASE
+                WHEN DIN.CODIMP = 7
+                    THEN NVL(DIN.BASE, 0)
+                ELSE 0
+            END
+        ) AS BASE_COFINS,
+
+        MAX(
+            CASE
+                WHEN DIN.CODIMP = 7
+                    THEN NVL(DIN.ALIQUOTA, 0)
+                ELSE 0
+            END
+        ) AS ALIQ_COFINS,
+
+        SUM(
+            CASE
+                WHEN DIN.CODIMP = 7
+                    THEN NVL(DIN.VALOR, 0)
+                ELSE 0
+            END
+        ) AS VLR_COFINS
+
+    FROM TGFDIN DIN
+
+    WHERE DIN.CODIMP IN (6, 7)
+
+    GROUP BY
+        DIN.NUNOTA,
+        DIN.SEQUENCIA
+) IMP
+       ON IMP.NUNOTA = ITE.NUNOTA
+      AND IMP.SEQUENCIA = ITE.SEQUENCIA
+
+LEFT JOIN TGFCUS CUS
+       ON CUS.CODPROD = ITE.CODPROD
+      AND CUS.CODEMP = CAB.CODEMP
+      AND CUS.DTATUAL = (
+          SELECT MAX(C2.DTATUAL)
+          FROM TGFCUS C2
+          WHERE C2.CODPROD = ITE.CODPROD
+            AND C2.CODEMP = CAB.CODEMP
+      )
+
+LEFT JOIN TGFTOP TOP
+       ON TOP.CODTIPOPER = CAB.CODTIPOPER
+      AND TOP.DHALTER = CAB.DHTIPOPER
+
+LEFT JOIN TGFTPV TPV
+       ON TPV.CODTIPVENDA = CAB.CODTIPVENDA
+      AND TPV.DHALTER = CAB.DHTIPVENDA
+
+LEFT JOIN TGFPAR PAR
+       ON PAR.CODPARC = CAB.CODPARC
+
+LEFT JOIN TCSPRJ PRJ
+       ON PRJ.CODPROJ = CAB.CODPROJ
+
+WHERE CAB.CODTIPOPER IN (
+    1101,
+    1164,
+    1166,
+    1201,
+    1202,
+    1257,
+    1206
+)
+  AND NVL(CAB.CODTIPVENDA, 0) <> 323
+  AND CAB.CODPROJ = {{CODPROJ}}
+
+/*FILTRO_DTNEG_INICIAL*/
+/*FILTRO_DTNEG_FINAL*/
+/*FILTRO_NUNOTA*/
+
+ORDER BY
+    CAB.DTNEG,
+    CAB.NUNOTA,
+    ITE.SEQUENCIA

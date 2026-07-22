@@ -1,0 +1,14 @@
+SELECT
+    PRJ.CODPROJ,
+
+    NVL(
+        TRIM(PRJ.IDENTIFICACAO),
+        NVL(
+            TRIM(PRJ.ABREVIATURA),
+            'Projeto ' || PRJ.CODPROJ
+        )
+    ) AS NOME_PROJETO
+
+FROM TCSPRJ PRJ
+
+WHERE PRJ.CODPROJ = {{CODPROJ}}
