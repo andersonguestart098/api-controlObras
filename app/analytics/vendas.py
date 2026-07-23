@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Any
+from typing import Any, Iterable
 
 import polars as pl
 
@@ -56,8 +56,16 @@ class VendasAnalytics:
             "vlrnota",
         )
 
-        custo_total_vendas = cls._calculate_sales_cost(
-            itens_frame
+        # Mesma consulta de itens, mesma coluna de custo.
+        # O que separa venda de devolucao e a TOP (12xx).
+        custo_total_vendas = cls._calculate_cost(
+            itens_frame,
+            TOPS_VENDA,
+        )
+
+        custo_total_devolucoes = cls._calculate_cost(
+            itens_frame,
+            TOPS_DEVOLUCAO,
         )
 
         return {
@@ -71,21 +79,32 @@ class VendasAnalytics:
             "custo_total": to_float(
                 custo_total_vendas
             ),
+            "custo_devolucoes": to_float(
+                custo_total_devolucoes
+            ),
+            "custo_liquido": to_float(
+                custo_total_vendas
+                - custo_total_devolucoes
+            ),
         }
 
     @staticmethod
-    def _calculate_sales_cost(
+    def _calculate_cost(
         frame: pl.DataFrame,
+        tops: Iterable[int],
     ) -> Decimal:
         if frame.is_empty():
             return Decimal("0")
 
-        vendas = frame.filter(
-            pl.col("codtipoper").is_in(TOPS_VENDA)
+        if "codtipoper" not in frame.columns:
+            return Decimal("0")
+
+        filtered = frame.filter(
+            pl.col("codtipoper").is_in(set(tops))
         )
 
         return sum_column(
-            vendas,
+            filtered,
             "custo_medio_sem_icms_total",
         )
 
@@ -96,4 +115,6 @@ class VendasAnalytics:
             "total_devolucoes": 0.0,
             "vendas_liquidas": 0.0,
             "custo_total": 0.0,
+            "custo_devolucoes": 0.0,
+            "custo_liquido": 0.0,
         }

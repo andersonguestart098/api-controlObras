@@ -56,13 +56,21 @@ QUERY_REGISTRY: dict[str, SankhyaQueryDefinition] = {
         supports_nunota=False,
     ),
     "pagamento_interno_obras": SankhyaQueryDefinition(
-        code="pagamento_interno_obras",
-        name="Vendas com plano Interno Obras",
-        filename="pagamento_interno_obras.sql",
-        granularity=QueryGranularity.NOTA,
-        expected_columns=["NUNOTA", "CODPROJ", "TIPO_MOVIMENTO", "VLRNOTA", "VLR_LIQUIDO"],
-        supports_period=False,
-        supports_nunota=False,
+    code="pagamento_interno_obras",
+    name="Vendas com plano Interno Obras",
+    filename="pagamento_interno_obras.sql",
+    granularity=QueryGranularity.NOTA,
+    expected_columns=[
+        "NUNOTA",
+        "CODPROJ",
+        "TIPO_MOVIMENTO",
+        "VLRNOTA",
+        "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+        "VLR_LIQUIDO",
+        "RESULTADO_APOS_CUSTO",
+    ],
+    supports_period=False,
+    supports_nunota=False,
     ),
 
     "notas_impostos": SankhyaQueryDefinition(
