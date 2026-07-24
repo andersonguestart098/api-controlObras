@@ -5,66 +5,17 @@ from decimal import (
 )
 from typing import Any
 
-from app.analytics.impostos import ImpostosAnalytics
-from app.analytics.interno_obras import InternoObrasAnalytics
-from app.analytics.remessas import RemessasAnalytics
-from app.analytics.vendas import VendasAnalytics
 
-
-class DashboardAnalytics:
+class EntradasAnalytics:
     ZERO = Decimal("0")
     CENTAVOS = Decimal("0.01")
 
     @classmethod
     def build_kpis(
         cls,
-        *,
-        notas: list[dict[str, Any]],
-        itens_notas: list[dict[str, Any]],
-        interno_obras: list[dict[str, Any]],
-        remessas: list[dict[str, Any]],
-        itens_remessas: list[dict[str, Any]],
-        notas_impostos: list[dict[str, Any]],
-        compras: list[dict[str, Any]],
-        bonificados: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        return {
-            "vendas": VendasAnalytics.build_kpis(
-                notas=notas,
-                itens_notas=itens_notas,
-            ),
-            "interno_obras": (
-                InternoObrasAnalytics.build_kpis(
-                    interno_obras
-                )
-            ),
-            "remessa_futura": (
-                RemessasAnalytics.build_kpis(
-                    remessas=remessas,
-                    itens_remessas=itens_remessas,
-                )
-            ),
-            "impostos": ImpostosAnalytics.build_kpis(
-                notas_impostos
-            ),
-            "compras": cls._build_movimento_kpis(
-                rows=compras,
-                incluir_custo=True,
-            ),
-            "bonificados": cls._build_movimento_kpis(
-                rows=bonificados,
-                incluir_custo=True,
-            ),
-        }
-
-    @classmethod
-    def _build_movimento_kpis(
-        cls,
-        *,
         rows: list[dict[str, Any]],
-        incluir_custo: bool,
     ) -> dict[str, Any]:
-        nunotas = {
+        notas = {
             row.get("nunota")
             for row in rows
             if row.get("nunota") is not None
@@ -121,8 +72,8 @@ class DashboardAnalytics:
             + valor_cofins
         )
 
-        kpis: dict[str, Any] = {
-            "quantidade_notas": len(nunotas),
+        return {
+            "quantidade_notas": len(notas),
             "valor_nota": cls._money(
                 valor_nota
             ),
@@ -158,22 +109,6 @@ class DashboardAnalytics:
             ),
         }
 
-        if incluir_custo:
-            custo_medio_sem_icms_total = (
-                cls._sum_field(
-                    rows,
-                    "custo_medio_sem_icms_total",
-                )
-            )
-
-            kpis[
-                "custo_medio_sem_icms_total"
-            ] = cls._money(
-                custo_medio_sem_icms_total
-            )
-
-        return kpis
-
     @classmethod
     def _sum_field(
         cls,
@@ -199,12 +134,6 @@ class DashboardAnalytics:
 
         if isinstance(value, Decimal):
             return value
-
-        if isinstance(
-            value,
-            (int, float),
-        ):
-            return Decimal(str(value))
 
         value_text = str(value).strip()
 
@@ -237,9 +166,9 @@ class DashboardAnalytics:
         cls,
         value: Decimal,
     ) -> float:
-        rounded_value = value.quantize(
+        rounded = value.quantize(
             cls.CENTAVOS,
             rounding=ROUND_HALF_UP,
         )
 
-        return float(rounded_value)
+        return float(rounded)

@@ -62,6 +62,14 @@ class DashboardService:
             )
         )
 
+        compras_definition = self._get_definition(
+            "compras"
+        )
+
+        bonificados_definition = self._get_definition(
+            "bonificados"
+        )
+
         (
             projeto_rows,
             notas_rows,
@@ -70,6 +78,8 @@ class DashboardService:
             remessas_rows,
             itens_remessas_rows,
             notas_impostos_rows,
+            compras_rows,
+            bonificados_rows,
         ) = await asyncio.gather(
             self._query_service.execute_query(
                 projeto_definition,
@@ -99,6 +109,14 @@ class DashboardService:
                 notas_impostos_definition,
                 filters,
             ),
+            self._query_service.execute_query(
+                compras_definition,
+                filters,
+            ),
+            self._query_service.execute_query(
+                bonificados_definition,
+                filters,
+            ),
         )
 
         projeto = self._build_projeto(
@@ -113,6 +131,8 @@ class DashboardService:
             remessas=remessas_rows,
             itens_remessas=itens_remessas_rows,
             notas_impostos=notas_impostos_rows,
+            compras=compras_rows,
+            bonificados=bonificados_rows,
         )
 
         return {
