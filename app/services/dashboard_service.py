@@ -184,6 +184,29 @@ class DashboardService:
             "queries": queries,
         }
 
+    async def get_movimentos(
+            self,
+            filters: DashboardFilters,
+    ) -> dict[str, Any]:
+        movimentos_definition = self._get_definition(
+            "movimentos"
+        )
+
+        movimentos_rows = (
+            await self._query_service.execute_query(
+                movimentos_definition,
+                filters,
+            )
+        )
+
+        return {
+            "filters": filters.model_dump(
+                mode="json"
+            ),
+            "count": len(movimentos_rows),
+            "movimentos": movimentos_rows,
+        }
+
     async def get_remessas_control(
         self,
         filters: DashboardFilters,

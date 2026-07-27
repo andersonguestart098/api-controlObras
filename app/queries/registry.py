@@ -163,6 +163,39 @@ QUERY_REGISTRY: dict[
         supports_nunota=False,
     ),
 
+    "movimentos": SankhyaQueryDefinition(
+        code="movimentos",
+        name="Movimentos vinculados à obra",
+        filename="movimentos.sql",
+        granularity=QueryGranularity.NOTA,
+        expected_columns=[
+            "NUNOTA",
+            "NUMNOTA",
+            "DTNEG",
+            "CODPROJ",
+            "PROJETO",
+            "CODPARC",
+            "PARCEIRO",
+            "CGC_CPF",
+            "CODTIPOPER",
+            "DESCROPER",
+            "TIPO_MOVIMENTO",
+            "CODTIPVENDA",
+            "TIPO_NEGOCIACAO",
+            "VLRNOTA",
+            "VLRICMS",
+            "VLRPIS",
+            "VLRCOFINS",
+            "VLR_GASTO_FIXO",
+            "VLR_IRPJ_CSSL",
+            "VLR_COMISSAO",
+            "VLR_GASTO_TOTAL",
+            "VLR_LIQUIDO",
+        ],
+        supports_period=True,
+        supports_nunota=True,
+    ),
+
     "projeto": SankhyaQueryDefinition(
         code="projeto",
         name="Identificação do projeto",
@@ -175,6 +208,8 @@ QUERY_REGISTRY: dict[
         supports_period=False,
         supports_nunota=False,
     ),
+
+
 }
 
 
