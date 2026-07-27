@@ -12,17 +12,9 @@ FROM (
             P1009.NUNOTA AS PEDIDO_MAE_NUNOTA,
             P1009.NUMNOTA AS PEDIDO_MAE_NUMNOTA,
 
-            CAB.NUNOTA AS PEDIDO_1010_NUNOTA,
-            CAB.NUMNOTA AS PEDIDO_1010_NUMNOTA,
+            P1010.NUNOTA AS PEDIDO_1010_NUNOTA,
+            P1010.NUMNOTA AS PEDIDO_1010_NUMNOTA,
 
-            /*
-             * A nota principal desta consulta agora
-             * é a TOP 1010.
-             *
-             * Mantemos o alias CAB para o serviço
-             * conseguir aplicar CAB.DTNEG nos
-             * filtros dinâmicos de período.
-             */
             CAB.NUNOTA,
             CAB.NUMNOTA,
             CAB.DANFE,
@@ -44,7 +36,7 @@ FROM (
                 PARTITION BY CAB.NUNOTA
                 ORDER BY
                     P1009.NUNOTA,
-                    CAB.NUNOTA
+                    P1010.NUNOTA
             ) AS RN
 
         FROM TGFCAB P1009
@@ -53,10 +45,19 @@ FROM (
                 ON VAR_1009_1010.NUNOTAORIG =
                    P1009.NUNOTA
 
+        INNER JOIN TGFCAB P1010
+                ON P1010.NUNOTA =
+                   VAR_1009_1010.NUNOTA
+               AND P1010.CODTIPOPER = 1010
+
+        INNER JOIN RELACOES VAR_1010_1157
+                ON VAR_1010_1157.NUNOTAORIG =
+                   P1010.NUNOTA
+
         INNER JOIN TGFCAB CAB
                 ON CAB.NUNOTA =
-                   VAR_1009_1010.NUNOTA
-               AND CAB.CODTIPOPER = 1010
+                   VAR_1010_1157.NUNOTA
+               AND CAB.CODTIPOPER = 1157
 
         WHERE P1009.CODTIPOPER = 1009
           AND NVL(P1009.CODTIPVENDA, 0) <> 323
@@ -184,18 +185,12 @@ FROM (
                         CASE
                             WHEN VOA.DIVIDEMULTIPLICA = 'D'
                                 THEN NVL(ITE.QTDNEG, 0)
-                                     * NVL(
-                                         VOA.QUANTIDADE,
-                                         1
-                                     )
+                                     * NVL(VOA.QUANTIDADE, 1)
 
                             WHEN VOA.DIVIDEMULTIPLICA = 'M'
                                 THEN NVL(ITE.QTDNEG, 0)
                                      / NULLIF(
-                                         NVL(
-                                             VOA.QUANTIDADE,
-                                             1
-                                         ),
+                                         NVL(VOA.QUANTIDADE, 1),
                                          0
                                      )
 
