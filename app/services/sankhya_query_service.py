@@ -72,29 +72,42 @@ class SankhyaQueryService:
 
     @staticmethod
     def _apply_filters(
-        sql: str,
-        definition: SankhyaQueryDefinition,
-        filters: DashboardFilters,
+            sql: str,
+            definition: SankhyaQueryDefinition,
+            filters: DashboardFilters,
     ) -> str:
-        # CODPROJ é obrigatório e validado como int pelo Pydantic.
+        """
+        Aplica os filtros globais do dashboard.
+
+        CODPROJ é obrigatório.
+        O período é opcional.
+        """
+
+        # CODPROJ é obrigatório e validado
+        # como inteiro pelo Pydantic.
         sql = sql.replace(
             "{{CODPROJ}}",
             str(filters.codproj),
         )
 
         if (
-            definition.supports_period
-            and filters.dtneg_inicial is not None
+                definition.supports_period
+                and filters.dtneg_inicial is not None
         ):
-            dtneg_inicial = filters.dtneg_inicial.strftime(
-                "%Y-%m-%d"
+            dtneg_inicial = (
+                filters.dtneg_inicial.strftime(
+                    "%Y-%m-%d"
+                )
             )
 
             sql = sql.replace(
                 "/*FILTRO_DTNEG_INICIAL*/",
                 (
                     "AND CAB.DTNEG >= "
-                    f"TO_DATE('{dtneg_inicial}', 'YYYY-MM-DD')"
+                    f"TO_DATE("
+                    f"'{dtneg_inicial}', "
+                    f"'YYYY-MM-DD'"
+                    f")"
                 ),
             )
         else:
@@ -104,18 +117,23 @@ class SankhyaQueryService:
             )
 
         if (
-            definition.supports_period
-            and filters.dtneg_final is not None
+                definition.supports_period
+                and filters.dtneg_final is not None
         ):
-            dtneg_final = filters.dtneg_final.strftime(
-                "%Y-%m-%d"
+            dtneg_final = (
+                filters.dtneg_final.strftime(
+                    "%Y-%m-%d"
+                )
             )
 
             sql = sql.replace(
                 "/*FILTRO_DTNEG_FINAL*/",
                 (
                     "AND CAB.DTNEG < "
-                    f"TO_DATE('{dtneg_final}', 'YYYY-MM-DD') + 1"
+                    f"TO_DATE("
+                    f"'{dtneg_final}', "
+                    f"'YYYY-MM-DD'"
+                    f") + 1"
                 ),
             )
         else:
@@ -124,21 +142,9 @@ class SankhyaQueryService:
                 "",
             )
 
-        if (
-            definition.supports_nunota
-            and filters.nunota is not None
-        ):
-            sql = sql.replace(
-                "/*FILTRO_NUNOTA*/",
-                f"AND CAB.NUNOTA = {filters.nunota}",
-            )
-        else:
-            sql = sql.replace(
-                "/*FILTRO_NUNOTA*/",
-                "",
-            )
-
-        SankhyaQueryService._validate_processed_sql(sql)
+        SankhyaQueryService._validate_processed_sql(
+            sql
+        )
 
         return sql
 

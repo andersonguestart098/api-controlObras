@@ -2,7 +2,6 @@ SELECT
     CAB.NUNOTA,
     CAB.NUMNOTA,
     CAB.DTNEG,
-
     CAB.CODEMP,
 
     CAB.CODPROJ,
@@ -18,16 +17,19 @@ SELECT
     CASE
         WHEN CAB.CODTIPOPER IN (
             1101,
+            1107,
             1164,
             1166
-        ) THEN 'VENDA'
+        )
+            THEN 'VENDA'
 
         WHEN CAB.CODTIPOPER IN (
             1201,
             1202,
             1257,
             1206
-        ) THEN 'DEVOLUCAO'
+        )
+            THEN 'DEVOLUCAO'
 
         WHEN CAB.CODTIPOPER = 1009
             THEN 'REMESSA'
@@ -39,14 +41,23 @@ SELECT
     TPV.DESCRTIPVENDA AS TIPO_NEGOCIACAO,
 
     CASE
-        WHEN CAB.CODTIPVENDA = 323
+        WHEN CAB.CODTIPOPER IN (
+            1101,
+            1107,
+            1164,
+            1166
+        )
+         AND CAB.CODTIPVENDA = 323
             THEN 'S'
+
         ELSE 'N'
     END AS INTERNO_OBRAS,
 
-    NVL(CAB.VLRNOTA, 0) AS VLRNOTA,
+    NVL(
+        CAB.VLRNOTA,
+        0
+    ) AS VLRNOTA,
 
-    /* ICMS destacado */
     ROUND(
         SUM(
             CASE
@@ -80,7 +91,6 @@ SELECT
         2
     ) AS VLR_ICMS,
 
-    /* PIS */
     ROUND(
         SUM(
             CASE
@@ -114,7 +124,6 @@ SELECT
         2
     ) AS VLR_PIS,
 
-    /* COFINS */
     ROUND(
         SUM(
             CASE
@@ -148,7 +157,6 @@ SELECT
         2
     ) AS VLR_COFINS,
 
-    /* Tributos federais = PIS + COFINS */
     ROUND(
           SUM(
               CASE
@@ -167,11 +175,14 @@ SELECT
         2
     ) AS VLR_TRIBUTOS_FEDERAIS,
 
-    /* Total de tributos = ICMS + PIS + COFINS */
     ROUND(
         SUM(
             CASE
-                WHEN DIN.CODIMP IN (1, 6, 7)
+                WHEN DIN.CODIMP IN (
+                    1,
+                    6,
+                    7
+                )
                     THEN NVL(DIN.VALOR, 0)
                 ELSE 0
             END
@@ -179,7 +190,6 @@ SELECT
         2
     ) AS VLR_TOTAL_TRIBUTOS,
 
-    /* Comissão fixa de 3,5% sobre o valor da nota */
     3.50 AS PERC_COMISSAO,
 
     ROUND(
@@ -187,13 +197,16 @@ SELECT
         2
     ) AS VLR_COMISSAO,
 
-    /* Valor após tributos e comissão */
     ROUND(
         NVL(CAB.VLRNOTA, 0)
         - (
             SUM(
                 CASE
-                    WHEN DIN.CODIMP IN (1, 6, 7)
+                    WHEN DIN.CODIMP IN (
+                        1,
+                        6,
+                        7
+                    )
                         THEN NVL(DIN.VALOR, 0)
                     ELSE 0
                 END
@@ -207,7 +220,11 @@ FROM TGFCAB CAB
 
 LEFT JOIN TGFDIN DIN
        ON DIN.NUNOTA = CAB.NUNOTA
-      AND DIN.CODIMP IN (1, 6, 7)
+      AND DIN.CODIMP IN (
+          1,
+          6,
+          7
+      )
 
 LEFT JOIN TGFTOP TOP
        ON TOP.CODTIPOPER = CAB.CODTIPOPER
@@ -225,15 +242,48 @@ LEFT JOIN TCSPRJ PRJ
 
 WHERE CAB.CODPROJ = {{CODPROJ}}
 
-  AND CAB.CODTIPOPER IN (
-      1009,
-      1101,
-      1164,
-      1166,
-      1201,
-      1202,
-      1257,
-      1206
+  AND (
+        CAB.CODTIPOPER = 1009
+
+        OR
+
+        CAB.CODTIPOPER IN (
+            1101,
+            1107,
+            1164,
+            1166
+        )
+
+        OR
+
+        (
+            CAB.CODTIPOPER IN (
+                1201,
+                1202,
+                1257,
+                1206
+            )
+
+            AND NVL(
+                CAB.CODTIPVENDA,
+                0
+            ) <> 323
+
+            AND NOT EXISTS (
+                SELECT 1
+
+                FROM TGFVAR VAR
+
+                INNER JOIN TGFCAB ORIG
+                        ON ORIG.NUNOTA =
+                           VAR.NUNOTAORIG
+
+                WHERE VAR.NUNOTA =
+                      CAB.NUNOTA
+
+                  AND ORIG.CODTIPVENDA = 323
+            )
+        )
   )
 
 /*FILTRO_DTNEG_INICIAL*/

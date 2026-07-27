@@ -23,12 +23,6 @@ SELECT
     NVL(CAB.VLRPIS, 0) AS VLRPIS,
     NVL(CAB.VLRCOFINS, 0) AS VLRCOFINS,
 
-    /*
-     * Custo total dos itens da nota:
-     *
-     * quantidade negociada
-     * × último custo médio sem ICMS
-     */
     NVL(
         CUSTO.CUSTO_MEDIO_SEM_ICMS_TOTAL,
         0
@@ -76,9 +70,6 @@ SELECT
         2
     ) AS VLR_LIQUIDO,
 
-    /*
-     * Resultado após encargos e custo.
-     */
     ROUND(
         NVL(CAB.VLRNOTA, 0)
         - (
@@ -112,10 +103,6 @@ LEFT JOIN TGFPAR PAR
 LEFT JOIN TCSPRJ PRJ
        ON PRJ.CODPROJ = CAB.CODPROJ
 
-/*
- * Agrupa os custos por nota para manter
- * a granularidade principal em uma linha por nota.
- */
 LEFT JOIN (
     SELECT
         ITE.NUNOTA,
@@ -138,7 +125,9 @@ LEFT JOIN (
           AND CUS.CODEMP = CAB_CUSTO.CODEMP
           AND CUS.DTATUAL = (
               SELECT MAX(C2.DTATUAL)
+
               FROM TGFCUS C2
+
               WHERE C2.CODPROD = ITE.CODPROD
                 AND C2.CODEMP = CAB_CUSTO.CODEMP
           )
@@ -150,15 +139,12 @@ LEFT JOIN (
 
 WHERE CAB.CODTIPOPER IN (
     1101,
+    1107,
     1164,
     1166
 )
   AND CAB.CODTIPVENDA = 323
   AND CAB.CODPROJ = {{CODPROJ}}
-
-/*FILTRO_DTNEG_INICIAL*/
-/*FILTRO_DTNEG_FINAL*/
-/*FILTRO_NUNOTA*/
 
 ORDER BY
     CAB.DTNEG,

@@ -15,9 +15,20 @@ SELECT
     TOP.DESCROPER,
 
     CASE
-        WHEN CAB.CODTIPOPER IN (1101, 1164, 1166)
+        WHEN CAB.CODTIPOPER IN (
+            1101,
+            1107,
+            1164,
+            1166
+        )
             THEN 'VENDA'
-        WHEN CAB.CODTIPOPER IN (1201, 1202, 1257, 1206)
+
+        WHEN CAB.CODTIPOPER IN (
+            1201,
+            1202,
+            1257,
+            1206
+        )
             THEN 'DEVOLUCAO'
     END AS TIPO_MOVIMENTO,
 
@@ -33,7 +44,10 @@ SELECT
     ITE.VLRUNIT,
     ITE.VLRTOT,
 
-    NVL(ITE.VLRDESC, 0) AS VLR_DESCONTO_ITEM,
+    NVL(
+        ITE.VLRDESC,
+        0
+    ) AS VLR_DESCONTO_ITEM,
 
     ROUND(
         NVL(ITE.VLRTOT, 0)
@@ -41,17 +55,50 @@ SELECT
         2
     ) AS VLR_ITEM_LIQUIDO,
 
-    NVL(ITE.BASEICMS, 0) AS BASE_ICMS,
-    NVL(ITE.ALIQICMS, 0) AS ALIQ_ICMS,
-    NVL(ITE.VLRICMS, 0) AS VLR_ICMS,
+    NVL(
+        ITE.BASEICMS,
+        0
+    ) AS BASE_ICMS,
 
-    NVL(IMP.BASE_PIS, 0) AS BASE_PIS,
-    NVL(IMP.ALIQ_PIS, 0) AS ALIQ_PIS,
-    NVL(IMP.VLR_PIS, 0) AS VLR_PIS,
+    NVL(
+        ITE.ALIQICMS,
+        0
+    ) AS ALIQ_ICMS,
 
-    NVL(IMP.BASE_COFINS, 0) AS BASE_COFINS,
-    NVL(IMP.ALIQ_COFINS, 0) AS ALIQ_COFINS,
-    NVL(IMP.VLR_COFINS, 0) AS VLR_COFINS,
+    NVL(
+        ITE.VLRICMS,
+        0
+    ) AS VLR_ICMS,
+
+    NVL(
+        IMP.BASE_PIS,
+        0
+    ) AS BASE_PIS,
+
+    NVL(
+        IMP.ALIQ_PIS,
+        0
+    ) AS ALIQ_PIS,
+
+    NVL(
+        IMP.VLR_PIS,
+        0
+    ) AS VLR_PIS,
+
+    NVL(
+        IMP.BASE_COFINS,
+        0
+    ) AS BASE_COFINS,
+
+    NVL(
+        IMP.ALIQ_COFINS,
+        0
+    ) AS ALIQ_COFINS,
+
+    NVL(
+        IMP.VLR_COFINS,
+        0
+    ) AS VLR_COFINS,
 
     ROUND(
           NVL(ITE.VLRICMS, 0)
@@ -149,7 +196,10 @@ LEFT JOIN (
 
     FROM TGFDIN DIN
 
-    WHERE DIN.CODIMP IN (6, 7)
+    WHERE DIN.CODIMP IN (
+        6,
+        7
+    )
 
     GROUP BY
         DIN.NUNOTA,
@@ -163,7 +213,9 @@ LEFT JOIN TGFCUS CUS
       AND CUS.CODEMP = CAB.CODEMP
       AND CUS.DTATUAL = (
           SELECT MAX(C2.DTATUAL)
+
           FROM TGFCUS C2
+
           WHERE C2.CODPROD = ITE.CODPROD
             AND C2.CODEMP = CAB.CODEMP
       )
@@ -182,21 +234,57 @@ LEFT JOIN TGFPAR PAR
 LEFT JOIN TCSPRJ PRJ
        ON PRJ.CODPROJ = CAB.CODPROJ
 
-WHERE CAB.CODTIPOPER IN (
-    1101,
-    1164,
-    1166,
-    1201,
-    1202,
-    1257,
-    1206
-)
-  AND NVL(CAB.CODTIPVENDA, 0) <> 323
-  AND CAB.CODPROJ = {{CODPROJ}}
+WHERE CAB.CODPROJ = {{CODPROJ}}
+
+  AND (
+        (
+            CAB.CODTIPOPER IN (
+                1101,
+                1107,
+                1164,
+                1166
+            )
+
+            AND NVL(
+                CAB.CODTIPVENDA,
+                0
+            ) <> 323
+        )
+
+        OR
+
+        (
+            CAB.CODTIPOPER IN (
+                1201,
+                1202,
+                1257,
+                1206
+            )
+
+            AND NVL(
+                CAB.CODTIPVENDA,
+                0
+            ) <> 323
+
+            AND NOT EXISTS (
+                SELECT 1
+
+                FROM TGFVAR VAR
+
+                INNER JOIN TGFCAB ORIG
+                        ON ORIG.NUNOTA =
+                           VAR.NUNOTAORIG
+
+                WHERE VAR.NUNOTA =
+                      CAB.NUNOTA
+
+                  AND ORIG.CODTIPVENDA = 323
+            )
+        )
+  )
 
 /*FILTRO_DTNEG_INICIAL*/
 /*FILTRO_DTNEG_FINAL*/
-/*FILTRO_NUNOTA*/
 
 ORDER BY
     CAB.DTNEG,

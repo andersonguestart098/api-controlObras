@@ -72,41 +72,38 @@ QUERY_REGISTRY: dict[
             "STATUS_ITEM",
         ],
         supports_period=False,
-        supports_nunota=False,
     ),
 
     "compras": SankhyaQueryDefinition(
-    code="compras",
-    name="Compras vinculadas à obra",
-    filename="compras.sql",
-    granularity=QueryGranularity.NOTA,
-    expected_columns=[
-        "NUNOTA",
-        "CODPROJ",
-        "TIPO_MOVIMENTO",
-        "VLRNOTA",
-        "VLR_LIQUIDO",
-        "CUSTO_MEDIO_SEM_ICMS_TOTAL",
-    ],
-    supports_period=False,
-    supports_nunota=False,
+        code="compras",
+        name="Compras vinculadas à obra",
+        filename="compras.sql",
+        granularity=QueryGranularity.NOTA,
+        expected_columns=[
+            "NUNOTA",
+            "CODPROJ",
+            "TIPO_MOVIMENTO",
+            "VLRNOTA",
+            "VLR_LIQUIDO",
+            "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+        ],
+        supports_period=False,
     ),
 
     "bonificados": SankhyaQueryDefinition(
-    code="bonificados",
-    name="Bonificados vinculados à obra",
-    filename="bonificados.sql",
-    granularity=QueryGranularity.NOTA,
-    expected_columns=[
-        "NUNOTA",
-        "CODPROJ",
-        "TIPO_MOVIMENTO",
-        "VLRNOTA",
-        "VLR_LIQUIDO",
-        "CUSTO_MEDIO_SEM_ICMS_TOTAL",
-    ],
-    supports_period=False,
-    supports_nunota=False,
+        code="bonificados",
+        name="Bonificados vinculados à obra",
+        filename="bonificados.sql",
+        granularity=QueryGranularity.NOTA,
+        expected_columns=[
+            "NUNOTA",
+            "CODPROJ",
+            "TIPO_MOVIMENTO",
+            "VLRNOTA",
+            "VLR_LIQUIDO",
+            "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+        ],
+        supports_period=False,
     ),
 
     "remessas": SankhyaQueryDefinition(
@@ -122,25 +119,77 @@ QUERY_REGISTRY: dict[
             "VLR_LIQUIDO",
         ],
         supports_period=False,
-        supports_nunota=False,
     ),
 
-    "pagamento_interno_obras": SankhyaQueryDefinition(
-        code="pagamento_interno_obras",
-        name="Vendas com plano Interno Obras",
-        filename="pagamento_interno_obras.sql",
+    "remessas_transporte": SankhyaQueryDefinition(
+        code="remessas_transporte",
+        name="Remessas de transporte vinculadas à obra",
+        filename="remessas_transporte.sql",
         granularity=QueryGranularity.NOTA,
         expected_columns=[
+            "PEDIDO_MAE_NUNOTA",
+            "PEDIDO_1010_NUNOTA",
             "NUNOTA",
             "CODPROJ",
             "TIPO_MOVIMENTO",
             "VLRNOTA",
-            "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+            "VLRICMS",
+            "VLRPIS",
+            "VLRCOFINS",
+            "VLR_TOTAL_TRIBUTOS",
+            "VLR_GASTO_TOTAL",
             "VLR_LIQUIDO",
-            "RESULTADO_APOS_CUSTO",
+            "CUSTO_MEDIO_SEM_ICMS_TOTAL",
         ],
-        supports_period=False,
+        supports_period=True,
         supports_nunota=False,
+    ),
+
+    "pagamento_interno_obras": (
+        SankhyaQueryDefinition(
+            code="pagamento_interno_obras",
+            name="Vendas com plano Interno Obras",
+            filename="pagamento_interno_obras.sql",
+            granularity=QueryGranularity.NOTA,
+            expected_columns=[
+                "NUNOTA",
+                "CODPROJ",
+                "TIPO_MOVIMENTO",
+                "VLRNOTA",
+                "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+                "VLR_LIQUIDO",
+                "RESULTADO_APOS_CUSTO",
+            ],
+            supports_period=False,
+        )
+    ),
+
+    "devolucoes_interno_obras": (
+        SankhyaQueryDefinition(
+            code="devolucoes_interno_obras",
+            name="Devoluções do Interno Obras",
+            filename=(
+                "devolucoes_interno_obras.sql"
+            ),
+            granularity=QueryGranularity.NOTA,
+            expected_columns=[
+                "NUNOTA",
+                "CODPROJ",
+                "TIPO_MOVIMENTO",
+                "VLRNOTA",
+                "VLRICMS",
+                "VLRPIS",
+                "VLRCOFINS",
+                "VLR_GASTO_FIXO",
+                "VLR_IRPJ_CSSL",
+                "VLR_COMISSAO",
+                "VLR_GASTO_TOTAL",
+                "VLR_LIQUIDO",
+                "CUSTO_MEDIO_SEM_ICMS_TOTAL",
+                "RESULTADO_APOS_CUSTO",
+            ],
+            supports_period=True,
+        )
     ),
 
     "notas_impostos": SankhyaQueryDefinition(
@@ -160,7 +209,6 @@ QUERY_REGISTRY: dict[
             "VLR_COMISSAO",
         ],
         supports_period=True,
-        supports_nunota=False,
     ),
 
     "movimentos": SankhyaQueryDefinition(
@@ -193,7 +241,6 @@ QUERY_REGISTRY: dict[
             "VLR_LIQUIDO",
         ],
         supports_period=True,
-        supports_nunota=True,
     ),
 
     "projeto": SankhyaQueryDefinition(
@@ -206,10 +253,7 @@ QUERY_REGISTRY: dict[
             "NOME_PROJETO",
         ],
         supports_period=False,
-        supports_nunota=False,
     ),
-
-
 }
 
 

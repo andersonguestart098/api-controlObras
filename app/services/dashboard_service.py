@@ -28,6 +28,26 @@ class DashboardService:
         self,
         filters: DashboardFilters,
     ) -> dict[str, Any]:
+        """
+        Carrega os dados utilizados nos KPIs principais.
+
+        Regras das remessas:
+
+        - remessas.sql:
+          notas-mãe TOP 1009, representando a
+          Remessa futura/faturamento.
+
+        - remessas_transporte.sql:
+          notas-filhas TOP 1157, representando
+          valor transportado, impostos e custo
+          efetivamente entregue.
+
+        - itens_remessas.sql:
+          não é utilizado nos KPIs.
+          Permanece apenas no controle detalhado
+          de remessas.
+        """
+
         projeto_definition = self._get_definition(
             "projeto"
         )
@@ -46,13 +66,19 @@ class DashboardService:
             )
         )
 
+        devolucoes_interno_obras_definition = (
+            self._get_definition(
+                "devolucoes_interno_obras"
+            )
+        )
+
         remessas_definition = self._get_definition(
             "remessas"
         )
 
-        itens_remessas_definition = (
+        remessas_transporte_definition = (
             self._get_definition(
-                "itens_remessas"
+                "remessas_transporte"
             )
         )
 
@@ -75,8 +101,9 @@ class DashboardService:
             notas_rows,
             itens_notas_rows,
             interno_obras_rows,
+            devolucoes_interno_obras_rows,
             remessas_rows,
-            itens_remessas_rows,
+            remessas_transporte_rows,
             notas_impostos_rows,
             compras_rows,
             bonificados_rows,
@@ -85,34 +112,47 @@ class DashboardService:
                 projeto_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 notas_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 itens_notas_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 interno_obras_definition,
                 filters,
             ),
+
+            self._query_service.execute_query(
+                devolucoes_interno_obras_definition,
+                filters,
+            ),
+
             self._query_service.execute_query(
                 remessas_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
-                itens_remessas_definition,
+                remessas_transporte_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 notas_impostos_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 compras_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 bonificados_definition,
                 filters,
@@ -127,9 +167,22 @@ class DashboardService:
         kpis = DashboardAnalytics.build_kpis(
             notas=notas_rows,
             itens_notas=itens_notas_rows,
+
             interno_obras=interno_obras_rows,
+
+            devolucoes_interno_obras=(
+                devolucoes_interno_obras_rows
+            ),
+
+            # TOP 1009 — faturamento da remessa futura.
             remessas=remessas_rows,
-            itens_remessas=itens_remessas_rows,
+
+            # TOP 1157 — valor, impostos e custo
+            # efetivamente transportados.
+            remessas_transporte=(
+                remessas_transporte_rows
+            ),
+
             notas_impostos=notas_impostos_rows,
             compras=compras_rows,
             bonificados=bonificados_rows,
@@ -147,6 +200,14 @@ class DashboardService:
         self,
         filters: DashboardFilters,
     ) -> dict[str, Any]:
+        """
+        Carrega todas as consultas registradas.
+
+        Este endpoint continua incluindo
+        itens_remessas, pois é um endpoint
+        geral para inspeção dos dados brutos.
+        """
+
         definitions = list(
             QUERY_REGISTRY.values()
         )
@@ -185,8 +246,8 @@ class DashboardService:
         }
 
     async def get_movimentos(
-            self,
-            filters: DashboardFilters,
+        self,
+        filters: DashboardFilters,
     ) -> dict[str, Any]:
         movimentos_definition = self._get_definition(
             "movimentos"
@@ -211,6 +272,22 @@ class DashboardService:
         self,
         filters: DashboardFilters,
     ) -> dict[str, Any]:
+        """
+        Controle detalhado das remessas.
+
+        Aqui o itens_remessas continua sendo
+        utilizado para calcular:
+
+        - quantidade total;
+        - quantidade entregue;
+        - quantidade pendente;
+        - valor entregue;
+        - valor pendente;
+        - custo entregue;
+        - custo pendente;
+        - percentual de entrega.
+        """
+
         remessas_definition = self._get_definition(
             "remessas"
         )
@@ -229,6 +306,7 @@ class DashboardService:
                 remessas_definition,
                 filters,
             ),
+
             self._query_service.execute_query(
                 itens_remessas_definition,
                 filters,
@@ -271,6 +349,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "qtd_entregue": (
                 total_row.get(
                     "qtd_entregue",
@@ -279,6 +358,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "qtd_pendente": (
                 total_row.get(
                     "qtd_pendente",
@@ -287,6 +367,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "vlr_total_item": (
                 total_row.get(
                     "vlr_total_item",
@@ -295,6 +376,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "vlr_entregue_item": (
                 total_row.get(
                     "vlr_entregue_item",
@@ -303,6 +385,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "vlr_saldo_item": (
                 total_row.get(
                     "vlr_saldo_item",
@@ -311,6 +394,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "custo_total": (
                 total_row.get(
                     "custo_total",
@@ -319,6 +403,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "custo_entregue": (
                 total_row.get(
                     "custo_entregue",
@@ -327,6 +412,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "custo_pendente": (
                 total_row.get(
                     "custo_pendente",
@@ -335,6 +421,7 @@ class DashboardService:
                 if total_row
                 else 0
             ),
+
             "perc_entrega": (
                 total_row.get(
                     "perc_entrega",
@@ -349,10 +436,13 @@ class DashboardService:
             "filters": filters.model_dump(
                 mode="json"
             ),
+
             "count_remessas": len(
                 remessas_rows
             ),
+
             "count_itens": len(itens),
+
             "remessas": remessas_rows,
             "resumo": resumo,
             "itens": itens,
@@ -367,10 +457,10 @@ class DashboardService:
         Monta os dados básicos do projeto.
 
         O SankhyaQueryService normaliza os nomes
-        das colunas para minúsculo, portanto:
+        das colunas para minúsculo:
 
-        CODPROJ      -> codproj
-        NOME_PROJETO -> nome_projeto
+        CODPROJ       -> codproj
+        NOME_PROJETO  -> nome_projeto
         """
 
         if not projeto_rows:
@@ -394,6 +484,7 @@ class DashboardService:
 
         try:
             codproj = int(codproj_value)
+
         except (
             TypeError,
             ValueError,

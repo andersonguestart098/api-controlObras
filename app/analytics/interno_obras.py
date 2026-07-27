@@ -11,46 +11,126 @@ class InternoObrasAnalytics:
     @classmethod
     def build_kpis(
         cls,
+        *,
         interno_obras: list[dict[str, Any]],
+        devolucoes_interno_obras: list[
+            dict[str, Any]
+        ],
     ) -> dict[str, float]:
-        frame = create_frame(
-            interno_obras
-        )
+        """
+        Calcula os valores brutos, as devoluções
+        vinculadas ao Interno Obras e o resultado
+        líquido da operação.
+        """
 
-        if frame.is_empty():
-            return cls._empty_kpis()
-
-        total = sum_column(
-            frame,
+        # Interno Obras bruto
+        total_bruto = cls._sum_rows(
+            interno_obras,
             "vlrnota",
         )
 
-        custo_total = sum_column(
-            frame,
+        custo_bruto = cls._sum_rows(
+            interno_obras,
             "custo_medio_sem_icms_total",
         )
 
-        resultado_apos_custo = sum_column(
-            frame,
-            "resultado_apos_custo",
+        resultado_apos_custo_bruto = (
+            cls._sum_rows(
+                interno_obras,
+                "resultado_apos_custo",
+            )
+        )
+
+        # Devoluções vinculadas ao Interno Obras
+        total_devolucoes = cls._sum_rows(
+            devolucoes_interno_obras,
+            "vlrnota",
+        )
+
+        custo_devolucoes = cls._sum_rows(
+            devolucoes_interno_obras,
+            "custo_medio_sem_icms_total",
+        )
+
+        resultado_apos_custo_devolucoes = (
+            cls._sum_rows(
+                devolucoes_interno_obras,
+                "resultado_apos_custo",
+            )
+        )
+
+        # Interno Obras líquido
+        total_liquido = round(
+            total_bruto - total_devolucoes,
+            2,
+        )
+
+        custo_liquido = round(
+            custo_bruto - custo_devolucoes,
+            2,
+        )
+
+        resultado_apos_custo_liquido = round(
+            resultado_apos_custo_bruto
+            - resultado_apos_custo_devolucoes,
+            2,
         )
 
         return {
-            "total": to_float(
-                total
+            # Bruto
+            "total_bruto": total_bruto,
+            "custo_bruto": custo_bruto,
+            "resultado_apos_custo_bruto": (
+                resultado_apos_custo_bruto
             ),
-            "custo_total": to_float(
-                custo_total
+
+            # Devoluções
+            "total_devolucoes": (
+                total_devolucoes
             ),
-            "resultado_apos_custo": to_float(
-                resultado_apos_custo
+            "custo_devolucoes": (
+                custo_devolucoes
+            ),
+            "resultado_apos_custo_devolucoes": (
+                resultado_apos_custo_devolucoes
+            ),
+
+            # Líquido
+            #
+            # Mantemos os nomes antigos para
+            # não quebrar o frontend.
+            "total": total_liquido,
+            "custo_total": custo_liquido,
+            "resultado_apos_custo": (
+                resultado_apos_custo_liquido
             ),
         }
 
     @staticmethod
-    def _empty_kpis() -> dict[str, float]:
-        return {
-            "total": 0.0,
-            "custo_total": 0.0,
-            "resultado_apos_custo": 0.0,
-        }
+    def _sum_rows(
+        rows: list[dict[str, Any]],
+        column: str,
+    ) -> float:
+        """
+        Soma uma coluna, retornando zero quando
+        não houver linhas ou quando a coluna não
+        estiver presente no DataFrame.
+        """
+
+        if not rows:
+            return 0.0
+
+        frame = create_frame(rows)
+
+        if frame.is_empty():
+            return 0.0
+
+        if column not in frame.columns:
+            return 0.0
+
+        total = sum_column(
+            frame,
+            column,
+        )
+
+        return to_float(total)
