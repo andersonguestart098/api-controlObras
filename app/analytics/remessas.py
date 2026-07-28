@@ -1,85 +1,163 @@
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_HALF_UP,
+)
 from typing import Any
 
-import polars as pl
-
-from app.analytics.common import create_frame, sum_column
+ZERO = Decimal("0")
+CENTAVOS = Decimal("0.01")
 
 
 class RemessasAnalytics:
+    """
+    KPIs da Remessa futura (notas-mãe TOP 1009).
+
+    Duas fontes, ambas de cabeçalho:
+
+    - remessas.sql:
+      valor faturado e custo PRÓPRIO da 1009.
+
+    - remessas_transporte.sql:
+      valor e custo já entregues pelas notas
+      filhas TOP 1157.
+
+    itens_remessas.sql não entra aqui.
+    Ele fica reservado ao controle detalhado
+    de remessas, nos componentes de baixo.
+    """
+
     @classmethod
     def build_kpis(
         cls,
         *,
         remessas: list[dict[str, Any]],
-        itens_remessas: list[dict[str, Any]],
+        remessas_transporte: list[dict[str, Any]],
     ) -> dict[str, float]:
-        remessas_frame = create_frame(remessas)
-        itens_frame = create_frame(itens_remessas)
-
-        total_remessas = sum_column(
-            remessas_frame,
+        total_faturamento = cls._sum_field(
+            remessas,
             "vlrnota",
         )
 
-        if itens_frame.is_empty():
-            return {
-                "total_faturamento": float(total_remessas),
-                "total_entregue": 0.0,
-                "saldo": 0.0,
-                "custo_total": 0.0,
-                "custo_entregue": 0.0,
-                "saldo_custo": 0.0,
-            }
+        total_entregue = cls._sum_field(
+            remessas_transporte,
+            "vlrnota",
+        )
 
-        itens = cls._remove_total_row(itens_frame)
+        saldo = (
+            total_faturamento
+            - total_entregue
+        )
+
+        # Custo da própria nota-mãe.
+        custo_total = cls._sum_field(
+            remessas,
+            "custo_medio_sem_icms_total",
+        )
+
+        # Custo baixado pelas notas filhas.
+        custo_entregue = cls._sum_field(
+            remessas_transporte,
+            "custo_medio_sem_icms_total",
+        )
+
+        saldo_custo = (
+            custo_total
+            - custo_entregue
+        )
 
         return {
-            # Valor oficial da remessa vem da consulta remessas.sql
-            "total_faturamento": float(total_remessas),
+            "total_faturamento": cls._money(
+                total_faturamento
+            ),
 
-            # Entregas, saldos e custos vêm de itens_remessas.sql
-            "total_entregue": float(
-                sum_column(
-                    itens,
-                    "vlr_entregue_item",
-                )
+            "total_entregue": cls._money(
+                total_entregue
             ),
-            "saldo": float(
-                sum_column(
-                    itens,
-                    "vlr_saldo_item",
-                )
+
+            "saldo": cls._money(
+                saldo
             ),
-            "custo_total": float(
-                sum_column(
-                    itens,
-                    "custo_total",
-                )
+
+            "custo_total": cls._money(
+                custo_total
             ),
-            "custo_entregue": float(
-                sum_column(
-                    itens,
-                    "custo_entregue",
-                )
+
+            "custo_entregue": cls._money(
+                custo_entregue
             ),
-            "saldo_custo": float(
-                sum_column(
-                    itens,
-                    "custo_pendente",
-                )
+
+            "saldo_custo": cls._money(
+                saldo_custo
             ),
         }
 
-    @staticmethod
-    def _remove_total_row(
-        frame: pl.DataFrame,
-    ) -> pl.DataFrame:
-        if "status_item" not in frame.columns:
-            return frame
+    @classmethod
+    def _sum_field(
+        cls,
+        rows: list[dict[str, Any]],
+        field: str,
+    ) -> Decimal:
+        total = ZERO
 
-        return frame.filter(
-            pl.col("status_item")
-            .fill_null("")
-            .str.to_uppercase()
-            != "TOTAL"
+        for row in rows:
+            total += cls._to_decimal(
+                row.get(field)
+            )
+
+        return total
+
+    @classmethod
+    def _to_decimal(
+        cls,
+        value: Any,
+    ) -> Decimal:
+        if value is None:
+            return ZERO
+
+        if isinstance(value, Decimal):
+            return value
+
+        if isinstance(
+            value,
+            (int, float),
+        ):
+            return Decimal(str(value))
+
+        value_text = str(value).strip()
+
+        if not value_text:
+            return ZERO
+
+        if "," in value_text:
+            if "." in value_text:
+                value_text = value_text.replace(
+                    ".",
+                    "",
+                )
+
+            value_text = value_text.replace(
+                ",",
+                ".",
+            )
+
+        try:
+            return Decimal(value_text)
+
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
+            return ZERO
+
+    @staticmethod
+    def _money(
+        value: Decimal,
+    ) -> float:
+        rounded_value = value.quantize(
+            CENTAVOS,
+            rounding=ROUND_HALF_UP,
         )
+
+        return float(rounded_value)

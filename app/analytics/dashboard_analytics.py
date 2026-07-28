@@ -12,6 +12,10 @@ from app.analytics.impostos import ImpostosAnalytics
 from app.analytics.interno_obras import (
     InternoObrasAnalytics,
 )
+from app.analytics.remessas import RemessasAnalytics
+from app.analytics.remessas_transporte import (
+    RemessasTransporteAnalytics,
+)
 from app.analytics.vendas import VendasAnalytics
 
 
@@ -41,6 +45,14 @@ class DashboardAnalytics:
         As devoluções de Interno Obras ficam
         separadas das devoluções de vendas normais
         e abatem exclusivamente o Interno Obras.
+
+        Remessas:
+
+        - Remessa futura   -> RemessasAnalytics
+        - Remessa transporte
+          -> RemessasTransporteAnalytics
+
+        As duas trabalham apenas com cabeçalho.
         """
 
         devolucoes_interno_obras_kpis = (
@@ -88,7 +100,7 @@ class DashboardAnalytics:
             ),
 
             "remessa_futura": (
-                cls._build_remessa_futura_kpis(
+                RemessasAnalytics.build_kpis(
                     remessas=remessas,
                     remessas_transporte=(
                         remessas_transporte
@@ -96,11 +108,11 @@ class DashboardAnalytics:
                 )
             ),
 
-            "remessa_transporte": cls._build_movimento_kpis(
-                rows=remessas_transporte,
-                incluir_custo=True,
+            "remessa_transporte": (
+                RemessasTransporteAnalytics.build_kpis(
+                    remessas_transporte
+                )
             ),
-
 
             "impostos": impostos_kpis,
 
@@ -117,74 +129,6 @@ class DashboardAnalytics:
                     incluir_custo=True,
                 )
             ),
-        }
-
-    @classmethod
-    def _build_remessa_futura_kpis(
-        cls,
-        *,
-        remessas: list[dict[str, Any]],
-        remessas_transporte: list[dict[str, Any]],
-    ) -> dict[str, float]:
-        """
-        Mantém o formato de retorno já utilizado
-        pelo frontend, mas sem itens_remessas.
-
-        total_faturamento:
-            soma das notas TOP 1009.
-
-        total_entregue:
-            soma das notas reais TOP 1157.
-
-        custo_entregue:
-            custo real das notas TOP 1157.
-        """
-
-        total_faturamento = cls._sum_field(
-            remessas,
-            "vlrnota",
-        )
-
-        total_entregue = cls._sum_field(
-            remessas_transporte,
-            "vlrnota",
-        )
-
-        saldo = (
-            total_faturamento
-            - total_entregue
-        )
-
-        custo_entregue = cls._sum_field(
-            remessas_transporte,
-            "custo_medio_sem_icms_total",
-        )
-
-        custo_formatado = cls._money(
-            custo_entregue
-        )
-
-        return {
-            "total_faturamento": cls._money(
-                total_faturamento
-            ),
-
-            "total_entregue": cls._money(
-                total_entregue
-            ),
-
-            "saldo": cls._money(
-                saldo
-            ),
-
-            # Compatibilidade com o frontend atual.
-            # Agora representa o custo real das 1157.
-            "custo_total": custo_formatado,
-            "custo_entregue": custo_formatado,
-
-            # O saldo projetado por item não participa
-            # mais do endpoint principal de KPIs.
-            "saldo_custo": 0.0,
         }
 
     @classmethod

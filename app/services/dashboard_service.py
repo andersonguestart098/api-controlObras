@@ -37,6 +37,9 @@ class DashboardService:
           notas-mãe TOP 1009, representando a
           Remessa futura/faturamento.
 
+          Traz também o custo próprio da nota,
+          calculado no cabeçalho.
+
         - remessas_transporte.sql:
           notas-filhas TOP 1157, representando
           valor transportado, impostos e custo
@@ -174,7 +177,8 @@ class DashboardService:
                 devolucoes_interno_obras_rows
             ),
 
-            # TOP 1009 — faturamento da remessa futura.
+            # TOP 1009 — faturamento e custo
+            # próprio da remessa futura.
             remessas=remessas_rows,
 
             # TOP 1157 — valor, impostos e custo
