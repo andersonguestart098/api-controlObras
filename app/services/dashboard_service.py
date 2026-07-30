@@ -91,12 +91,20 @@ class DashboardService:
             )
         )
 
+        pagamentos_definition = self._get_definition(
+            "pagamentos"
+        )
+
         compras_definition = self._get_definition(
             "compras"
         )
 
         bonificados_definition = self._get_definition(
             "bonificados"
+        )
+
+        mao_de_obra_definition = self._get_definition(
+            "mao_de_obra"
         )
 
         (
@@ -110,6 +118,8 @@ class DashboardService:
             notas_impostos_rows,
             compras_rows,
             bonificados_rows,
+            mao_de_obra_rows,
+            pagamentos_rows,
         ) = await asyncio.gather(
             self._query_service.execute_query(
                 projeto_definition,
@@ -160,6 +170,17 @@ class DashboardService:
                 bonificados_definition,
                 filters,
             ),
+
+            self._query_service.execute_query(
+                mao_de_obra_definition,
+                filters,
+            ),
+
+            self._query_service.execute_query(
+                pagamentos_definition,
+                filters,
+            ),
+
         )
 
         projeto = self._build_projeto(
@@ -177,12 +198,8 @@ class DashboardService:
                 devolucoes_interno_obras_rows
             ),
 
-            # TOP 1009 — faturamento e custo
-            # próprio da remessa futura.
             remessas=remessas_rows,
 
-            # TOP 1157 — valor, impostos e custo
-            # efetivamente transportados.
             remessas_transporte=(
                 remessas_transporte_rows
             ),
@@ -190,6 +207,8 @@ class DashboardService:
             notas_impostos=notas_impostos_rows,
             compras=compras_rows,
             bonificados=bonificados_rows,
+            mao_de_obra=mao_de_obra_rows,
+            pagamentos=pagamentos_rows,
         )
 
         return {
@@ -270,6 +289,39 @@ class DashboardService:
             ),
             "count": len(movimentos_rows),
             "movimentos": movimentos_rows,
+        }
+
+    async def get_pagamentos(
+            self,
+            filters: DashboardFilters,
+    ) -> dict[str, Any]:
+        """
+        Retorna os títulos financeiros detalhados
+        vinculados à obra.
+
+        Essa carga é separada dos KPIs e será usada
+        para listagem e tooltip no frontend.
+        """
+
+        pagamentos_definition = self._get_definition(
+            "pagamentos"
+        )
+
+        pagamentos_rows = (
+            await self._query_service.execute_query(
+                pagamentos_definition,
+                filters,
+            )
+        )
+
+        return {
+            "filters": filters.model_dump(
+                mode="json"
+            ),
+
+            "count": len(pagamentos_rows),
+
+            "pagamentos": pagamentos_rows,
         }
 
     async def get_remessas_control(

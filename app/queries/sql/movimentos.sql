@@ -191,10 +191,12 @@ WHERE CAB.CODTIPOPER IN (
     1164,
     1166,
     1009,
+    1010,
     1201,
     1202,
     1257,
-    1206
+    1206,
+    1301
 )
 
   AND CAB.CODPROJ = {{CODPROJ}}

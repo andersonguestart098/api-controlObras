@@ -1,8 +1,13 @@
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import Depends
 
+from app.analytics.normalizers import (
+    frame_to_json_records,
+    normalize_rows,
+)
 from app.clients.sankhya_client import (
     SankhyaClient,
     get_sankhya_client,
@@ -12,10 +17,9 @@ from app.core.exceptions import SankhyaQueryResponseError
 from app.queries.registry import load_sql
 from app.schemas.filters import DashboardFilters
 from app.schemas.query import SankhyaQueryDefinition
-from app.analytics.normalizers import (
-    frame_to_json_records,
-    normalize_rows,
-)
+
+
+logger = logging.getLogger(__name__)
 
 
 class SankhyaQueryService:
@@ -53,9 +57,22 @@ class SankhyaQueryService:
                 request_body,
             )
 
-        raw_rows, _ = self._extract_rows(
-            response=response,
-        )
+        try:
+            raw_rows, _ = self._extract_rows(
+                response=response,
+            )
+        except SankhyaQueryResponseError:
+            logger.exception(
+                "Falha ao interpretar resposta do DbExplorer. "
+                "Consulta: %s | Arquivo: %s | CODPROJ: %s | "
+                "Data inicial: %s | Data final: %s",
+                definition.code,
+                definition.filename,
+                filters.codproj,
+                filters.dtneg_inicial,
+                filters.dtneg_final,
+            )
+            raise
 
         frame = normalize_rows(
             rows=raw_rows,
@@ -72,9 +89,9 @@ class SankhyaQueryService:
 
     @staticmethod
     def _apply_filters(
-            sql: str,
-            definition: SankhyaQueryDefinition,
-            filters: DashboardFilters,
+        sql: str,
+        definition: SankhyaQueryDefinition,
+        filters: DashboardFilters,
     ) -> str:
         """
         Aplica os filtros globais do dashboard.
@@ -91,8 +108,8 @@ class SankhyaQueryService:
         )
 
         if (
-                definition.supports_period
-                and filters.dtneg_inicial is not None
+            definition.supports_period
+            and filters.dtneg_inicial is not None
         ):
             dtneg_inicial = (
                 filters.dtneg_inicial.strftime(
@@ -117,8 +134,8 @@ class SankhyaQueryService:
             )
 
         if (
-                definition.supports_period
-                and filters.dtneg_final is not None
+            definition.supports_period
+            and filters.dtneg_final is not None
         ):
             dtneg_final = (
                 filters.dtneg_final.strftime(
@@ -170,7 +187,79 @@ class SankhyaQueryService:
     def _extract_rows(
         response: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        body = response.get("responseBody") or {}
+        """
+        Extrai as linhas retornadas pelo DbExplorer.
+
+        Algumas versões do Sankhya retornam responseBody vazio quando
+        a consulta não encontra registros. Esse cenário é válido e deve
+        ser convertido para uma lista vazia, sem derrubar o dashboard.
+        """
+
+        if not isinstance(response, dict):
+            raise SankhyaQueryResponseError(
+                "O DbExplorer retornou uma resposta em formato "
+                f"inválido: {type(response).__name__}."
+            )
+
+        service_response = response.get("serviceResponse")
+
+        if isinstance(service_response, dict):
+            response_data = service_response
+        else:
+            response_data = response
+
+        status = response_data.get("status")
+        status_message = (
+            response_data.get("statusMessage")
+            or response_data.get("statusMessageError")
+            or response_data.get("message")
+            or ""
+        )
+
+        if SankhyaQueryService._is_error_status(status):
+            raise SankhyaQueryResponseError(
+                "Erro retornado pelo DbExplorerSP.executeQuery: "
+                f"{status_message or 'sem mensagem de erro'}."
+            )
+
+        has_response_body = "responseBody" in response_data
+        body = response_data.get("responseBody")
+
+        # O Sankhya pode devolver responseBody vazio quando a consulta
+        # é válida, mas não encontrou nenhum registro.
+        if has_response_body and body in (None, {}, []):
+            return [], []
+
+        # Compatibilidade com respostas em que rows/result aparecem
+        # diretamente no objeto principal, sem responseBody.
+        if not has_response_body:
+            direct_body_keys = {
+                "rows",
+                "fieldsMetadata",
+                "fields",
+                "result",
+                "resultSet",
+                "response",
+            }
+
+            if direct_body_keys.intersection(response_data.keys()):
+                body = response_data
+            else:
+                raise SankhyaQueryResponseError(
+                    "A resposta do DbExplorerSP.executeQuery não contém "
+                    "responseBody nem uma estrutura de resultado conhecida. "
+                    f"Chaves encontradas: {list(response_data.keys())}. "
+                    "Mensagem do Sankhya: "
+                    f"{status_message or 'não informada'}."
+                )
+
+        if not isinstance(body, dict):
+            raise SankhyaQueryResponseError(
+                "Formato de responseBody não reconhecido. "
+                f"Tipo recebido: {type(body).__name__}. "
+                "Mensagem do Sankhya: "
+                f"{status_message or 'não informada'}."
+            )
 
         direct_rows = body.get("rows")
 
@@ -271,12 +360,42 @@ class SankhyaQueryService:
             if isinstance(response_rows[0], dict):
                 return response_rows, []
 
+        body_keys = list(body.keys())
+
         raise SankhyaQueryResponseError(
             "Formato da resposta do "
             "DbExplorerSP.executeQuery não reconhecido. "
-            f"Chaves encontradas em responseBody: "
-            f"{list(body.keys())}"
+            f"Tipo de responseBody: {type(body).__name__}. "
+            f"Chaves encontradas em responseBody: {body_keys}. "
+            "Mensagem do Sankhya: "
+            f"{status_message or 'não informada'}."
         )
+
+    @staticmethod
+    def _is_error_status(status: Any) -> bool:
+        """
+        Identifica os valores de status usados pelo Sankhya para erro.
+        """
+
+        if status is None:
+            return False
+
+        if status is False:
+            return True
+
+        if isinstance(status, (int, float)):
+            return status == 0
+
+        normalized_status = str(status).strip().lower()
+
+        return normalized_status in {
+            "0",
+            "false",
+            "error",
+            "erro",
+            "failed",
+            "failure",
+        }
 
     @staticmethod
     def _ensure_metadata_list(
@@ -354,8 +473,8 @@ class SankhyaQueryService:
 
     @staticmethod
     def _validate_columns(
-            definition: SankhyaQueryDefinition,
-            rows: list[dict[str, Any]],
+        definition: SankhyaQueryDefinition,
+        rows: list[dict[str, Any]],
     ) -> None:
         if not rows:
             return

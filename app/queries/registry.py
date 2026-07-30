@@ -243,6 +243,28 @@ QUERY_REGISTRY: dict[
         supports_period=True,
     ),
 
+    "mao_de_obra": SankhyaQueryDefinition(
+        code="mao_de_obra",
+        name="Lançamentos de mão de obra da obra",
+        filename="mao_de_obra.sql",
+        granularity=QueryGranularity.NOTA,
+        expected_columns=[
+            "NUNOTA",
+            "CODPROJ",
+            "TIPO_MOVIMENTO",
+            "VLRNOTA",
+            "VLRICMS",
+            "VLRPIS",
+            "VLRCOFINS",
+            "VLR_GASTO_FIXO",
+            "VLR_IRPJ_CSSL",
+            "VLR_COMISSAO",
+            "VLR_GASTO_TOTAL",
+            "VLR_LIQUIDO",
+        ],
+        supports_period=True,
+    ),
+
     "projeto": SankhyaQueryDefinition(
         code="projeto",
         name="Identificação do projeto",

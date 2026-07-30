@@ -48,6 +48,17 @@ async def get_movimentos(
         filters
     )
 
+@router.post("/pagamentos")
+async def get_pagamentos(
+    filters: DashboardFilters,
+    dashboard_service: DashboardService = Depends(
+        get_dashboard_service
+    ),
+) -> dict[str, Any]:
+    return await dashboard_service.get_pagamentos(
+        filters
+    )
+
 @router.post("/raw")
 async def load_dashboard_raw(
     filters: DashboardFilters,

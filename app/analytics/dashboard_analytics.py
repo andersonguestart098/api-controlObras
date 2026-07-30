@@ -25,19 +25,21 @@ class DashboardAnalytics:
 
     @classmethod
     def build_kpis(
-        cls,
-        *,
-        notas: list[dict[str, Any]],
-        itens_notas: list[dict[str, Any]],
-        interno_obras: list[dict[str, Any]],
-        devolucoes_interno_obras: list[
-            dict[str, Any]
-        ],
-        remessas: list[dict[str, Any]],
-        remessas_transporte: list[dict[str, Any]],
-        notas_impostos: list[dict[str, Any]],
-        compras: list[dict[str, Any]],
-        bonificados: list[dict[str, Any]],
+            cls,
+            *,
+            notas: list[dict[str, Any]],
+            itens_notas: list[dict[str, Any]],
+            interno_obras: list[dict[str, Any]],
+            devolucoes_interno_obras: list[
+                dict[str, Any]
+            ],
+            remessas: list[dict[str, Any]],
+            remessas_transporte: list[dict[str, Any]],
+            notas_impostos: list[dict[str, Any]],
+            compras: list[dict[str, Any]],
+            bonificados: list[dict[str, Any]],
+            mao_de_obra: list[dict[str, Any]],
+            pagamentos: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
         Monta todos os indicadores do dashboard.
@@ -129,6 +131,20 @@ class DashboardAnalytics:
                     incluir_custo=True,
                 )
             ),
+
+            "mao_de_obra": (
+                cls._build_movimento_kpis(
+                    rows=mao_de_obra,
+                    incluir_custo=False,
+                )
+            ),
+
+            "pagamentos": (
+                cls._build_pagamentos_kpis(
+                    pagamentos
+                )
+            ),
+
         }
 
     @classmethod
@@ -264,6 +280,122 @@ class DashboardAnalytics:
             )
 
         return resultado
+
+    @classmethod
+    def _build_pagamentos_kpis(
+        cls,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Monta os indicadores financeiros dos títulos
+        vinculados à obra.
+
+        Considera os status retornados pela consulta:
+
+        - PAGO
+        - VENCIDO
+        - EM ABERTO
+        """
+
+        # Evita somar o mesmo título duas vezes caso
+        # algum JOIN da consulta duplique o NUFIN.
+        titulos_por_nufin: dict[Any, dict[str, Any]] = {}
+        titulos_sem_nufin: list[dict[str, Any]] = []
+
+        for row in rows:
+            nufin = row.get("nufin")
+
+            if nufin is None:
+                titulos_sem_nufin.append(row)
+                continue
+
+            titulos_por_nufin[nufin] = row
+
+        titulos = (
+            list(titulos_por_nufin.values())
+            + titulos_sem_nufin
+        )
+
+        pagos: list[dict[str, Any]] = []
+        vencidos: list[dict[str, Any]] = []
+        em_aberto: list[dict[str, Any]] = []
+
+        for row in titulos:
+            status = str(
+                row.get("status_titulo") or ""
+            ).strip().upper()
+
+            if status == "PAGO":
+                pagos.append(row)
+
+            elif status == "VENCIDO":
+                vencidos.append(row)
+
+            elif status in (
+                "EM ABERTO",
+                "EM_ABERTO",
+                "ABERTO",
+            ):
+                em_aberto.append(row)
+
+        valor_titulos = cls._sum_field(
+            titulos,
+            "valor_titulo",
+        )
+
+        valor_pago = cls._sum_field(
+            titulos,
+            "valor_baixa",
+        )
+
+        saldo_aberto = cls._sum_field(
+            titulos,
+            "saldo_aberto",
+        )
+
+        valor_vencido = cls._sum_field(
+            vencidos,
+            "saldo_aberto",
+        )
+
+        valor_em_aberto = cls._sum_field(
+            em_aberto,
+            "saldo_aberto",
+        )
+
+        return {
+            "quantidade_titulos": len(titulos),
+
+            "quantidade_pagos": len(pagos),
+
+            "quantidade_vencidos": len(
+                vencidos
+            ),
+
+            "quantidade_em_aberto": len(
+                em_aberto
+            ),
+
+            "valor_titulos": cls._money(
+                valor_titulos
+            ),
+
+            "valor_pago": cls._money(
+                valor_pago
+            ),
+
+            "saldo_aberto": cls._money(
+                saldo_aberto
+            ),
+
+            "valor_vencido": cls._money(
+                valor_vencido
+            ),
+
+            "valor_em_aberto": cls._money(
+                valor_em_aberto
+            ),
+        }
 
     @classmethod
     def _build_movimento_kpis(
