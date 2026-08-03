@@ -1,12 +1,20 @@
+import asyncio
+import logging
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from math import ceil
+from time import monotonic, perf_counter
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.integrations.vexpenses_client import (
     VExpensesClient,
     get_vexpenses_client,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class VExpensesService:
@@ -19,24 +27,63 @@ class VExpensesService:
     - quais parâmetros enviar;
     - quais dados relacionados incluir;
     - como normalizar os dados para o dashboard.
+
+    Otimizações aplicadas ao resumo:
+    - usa o ano atual quando o dashboard não informa datas;
+    - filtra os relatórios por approval_date na própria VExpenses;
+    - filtra o projeto localmente pelo course_id da despesa;
+    - evita carregar rateios quando incluir_movimentos=False;
+    - reutiliza relatórios em cache por alguns minutos;
+    - carrega páginas em paralelo quando a API informa a paginação;
+    - reutiliza o projeto encontrado pelo integration_id.
     """
 
-    REPORT_INCLUDES = ",".join(
+    REPORT_SUMMARY_INCLUDES = ",".join(
         [
             "expenses",
             "user",
             "expenses.costs_center",
             "expenses.expense_type",
             "expenses.payment_method",
+        ]
+    )
+
+    REPORT_DETAIL_INCLUDES = ",".join(
+        [
+            REPORT_SUMMARY_INCLUDES,
             "expenses.apportionment",
         ]
     )
+
+    REPORTS_CACHE_TTL_SECONDS = 300.0
+    PROJECT_CACHE_TTL_SECONDS = 900.0
+    MAX_CONCURRENT_PAGES = 4
+    MAX_PAGES = 100
+    TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
     def __init__(
         self,
         client: VExpensesClient,
     ) -> None:
         self._client = client
+
+        # Chave:
+        # (data_inicial, data_final, incluir_rateios)
+        self._reports_cache: dict[
+            tuple[date, date, bool],
+            tuple[float, list[dict[str, Any]]],
+        ] = {}
+        self._reports_cache_lock = asyncio.Lock()
+
+        # Cache do projeto já normalizado para o dashboard.
+        self._project_by_id_cache: dict[
+            int,
+            tuple[float, dict[str, Any]],
+        ] = {}
+        self._project_by_integration_cache: dict[
+            str,
+            tuple[float, dict[str, Any]],
+        ] = {}
 
     async def listar_projetos(
         self,
@@ -64,6 +111,9 @@ class VExpensesService:
     ) -> Any:
         """
         Busca um projeto específico pelo ID da VExpenses.
+
+        Este método preserva a resposta original da API para a
+        rota pública /projects/{project_id}.
         """
 
         if project_id <= 0:
@@ -82,13 +132,16 @@ class VExpensesService:
         itens_por_pagina: int = 50,
         data_inicial: date | None = None,
         data_final: date | None = None,
+        incluir_rateios: bool = True,
     ) -> Any:
         """
-        Lista relatórios aprovados com suas despesas,
-        usuário, centro de custo, tipo, pagamento e rateio.
+        Lista relatórios aprovados com suas despesas e relações.
 
-        Neste endpoint bruto, o período informado é aplicado
-        sobre approval_date pela própria API da VExpenses.
+        Quando o período é informado, ele é aplicado sobre
+        approval_date pela própria API VExpenses.
+
+        incluir_rateios=False reduz o payload do resumo quando a
+        lista completa de movimentos não será devolvida.
         """
 
         self._validar_periodo(
@@ -96,12 +149,18 @@ class VExpensesService:
             data_final=data_final,
         )
 
+        includes = (
+            self.REPORT_DETAIL_INCLUDES
+            if incluir_rateios
+            else self.REPORT_SUMMARY_INCLUDES
+        )
+
         params: dict[str, Any] = {
             **self._montar_paginacao(
                 pagina=pagina,
                 itens_por_pagina=itens_por_pagina,
             ),
-            "include": self.REPORT_INCLUDES,
+            "include": includes,
         }
 
         if data_inicial is not None and data_final is not None:
@@ -126,35 +185,44 @@ class VExpensesService:
         incluir_movimentos: bool = False,
     ) -> dict[str, Any]:
         """
-        Retorna o resumo das despesas aprovadas vinculadas
-        a um projeto específico da VExpenses.
+        Retorna o resumo das despesas aprovadas vinculadas ao projeto.
 
-        O vínculo do projeto é feito pelo course_id existente
-        em cada despesa retornada pela VExpenses.
-
-        O período é aplicado sobre a data da despesa.
+        Regras:
+        - o projeto é comparado com course_id de cada despesa;
+        - sem datas informadas, usa 01/01 do ano atual até hoje;
+        - o filtro enviado à VExpenses usa approval_date;
+        - após receber os relatórios, o service também valida a data
+          real da despesa e o course_id do projeto.
         """
+
+        inicio = perf_counter()
 
         if project_id <= 0:
             raise ValueError(
                 "O ID do projeto deve ser maior que zero."
             )
 
-        self._validar_periodo(
+        data_inicial, data_final = self._resolver_periodo_dashboard(
             data_inicial=data_inicial,
             data_final=data_final,
         )
 
-        resposta_projeto = await self.buscar_projeto_por_id(
+        # O projeto costuma estar em cache porque o frontend consulta
+        # primeiro /projects/by-integration/{codproj}.
+        projeto_task = self._obter_projeto_normalizado(
             project_id=project_id,
         )
 
-        projeto = self._normalizar_projeto(
-            resposta=resposta_projeto,
-            project_id=project_id,
+        relatorios_task = self._listar_todos_relatorios_aprovados(
+            data_inicial=data_inicial,
+            data_final=data_final,
+            incluir_rateios=incluir_movimentos,
         )
 
-        relatorios = await self._listar_todos_relatorios_aprovados()
+        projeto, relatorios = await asyncio.gather(
+            projeto_task,
+            relatorios_task,
+        )
 
         movimentos = self._normalizar_movimentos(
             relatorios=relatorios,
@@ -163,7 +231,7 @@ class VExpensesService:
             data_final=data_final,
         )
 
-        return self._montar_resumo(
+        resposta = self._montar_resumo(
             movimentos=movimentos,
             projeto=projeto,
             data_inicial=data_inicial,
@@ -171,63 +239,159 @@ class VExpensesService:
             incluir_movimentos=incluir_movimentos,
         )
 
+        logger.info(
+            "VExpenses summary concluído. "
+            "project_id=%s periodo=%s..%s relatorios=%s "
+            "movimentos=%s incluir_movimentos=%s tempo=%.3fs",
+            project_id,
+            data_inicial.isoformat(),
+            data_final.isoformat(),
+            len(relatorios),
+            len(movimentos),
+            incluir_movimentos,
+            perf_counter() - inicio,
+        )
+
+        return resposta
+
     async def _listar_todos_relatorios_aprovados(
         self,
+        *,
+        data_inicial: date,
+        data_final: date,
+        incluir_rateios: bool,
     ) -> list[dict[str, Any]]:
         """
-        Percorre todas as páginas de relatórios aprovados.
+        Busca todas as páginas de relatórios aprovados do período.
 
-        Não aplica o período de aprovação aqui porque o resumo
-        deve filtrar pela data real da despesa. Uma despesa pode
-        ter sido realizada em uma data e aprovada posteriormente.
+        O filtro de período é executado pela VExpenses sobre
+        approval_date. O filtro de course_id continua sendo aplicado
+        localmente porque ele está dentro de cada despesa.
         """
 
-        pagina = 1
-        itens_por_pagina = 100
-        relatorios: list[dict[str, Any]] = []
+        cache_key = (
+            data_inicial,
+            data_final,
+            incluir_rateios,
+        )
 
-        while True:
-            resposta = await self.listar_relatorios_aprovados(
-                pagina=pagina,
+        cached = self._get_reports_cache(cache_key)
+
+        if cached is not None:
+            logger.info(
+                "VExpenses relatórios obtidos do cache. "
+                "periodo=%s..%s incluir_rateios=%s quantidade=%s",
+                data_inicial.isoformat(),
+                data_final.isoformat(),
+                incluir_rateios,
+                len(cached),
+            )
+            return cached
+
+        # Evita duas requisições simultâneas carregarem o mesmo
+        # conjunto de relatórios quando o React dispara refetch.
+        async with self._reports_cache_lock:
+            cached = self._get_reports_cache(cache_key)
+
+            if cached is not None:
+                return cached
+
+            itens_por_pagina = 100
+
+            primeira_resposta = await self.listar_relatorios_aprovados(
+                pagina=1,
+                itens_por_pagina=itens_por_pagina,
+                data_inicial=data_inicial,
+                data_final=data_final,
+                incluir_rateios=incluir_rateios,
+            )
+
+            primeira_pagina = self._extrair_dados_pagina(
+                primeira_resposta
+            )
+
+            relatorios = list(primeira_pagina)
+
+            ultima_pagina = self._extrair_ultima_pagina(
+                resposta=primeira_resposta,
                 itens_por_pagina=itens_por_pagina,
             )
 
-            if not isinstance(resposta, dict):
-                break
+            if ultima_pagina is not None:
+                ultima_pagina = min(
+                    ultima_pagina,
+                    self.MAX_PAGES,
+                )
 
-            dados_pagina = resposta.get("data", [])
+                if ultima_pagina > 1:
+                    outras_paginas = (
+                        await self._carregar_paginas_em_paralelo(
+                            pagina_inicial=2,
+                            pagina_final=ultima_pagina,
+                            itens_por_pagina=itens_por_pagina,
+                            data_inicial=data_inicial,
+                            data_final=data_final,
+                            incluir_rateios=incluir_rateios,
+                        )
+                    )
 
-            if not isinstance(dados_pagina, list):
-                break
+                    for dados_pagina in outras_paginas:
+                        relatorios.extend(dados_pagina)
 
-            relatorios.extend(dados_pagina)
+            elif len(primeira_pagina) == itens_por_pagina:
+                # Fallback para APIs que não informam total de páginas.
+                pagina = 2
 
-            if len(dados_pagina) < itens_por_pagina:
-                break
+                while pagina <= self.MAX_PAGES:
+                    resposta = await self.listar_relatorios_aprovados(
+                        pagina=pagina,
+                        itens_por_pagina=itens_por_pagina,
+                        data_inicial=data_inicial,
+                        data_final=data_final,
+                        incluir_rateios=incluir_rateios,
+                    )
 
-            pagina += 1
+                    dados_pagina = self._extrair_dados_pagina(
+                        resposta
+                    )
 
-            # Proteção para evitar loop infinito caso a API
-            # retorne paginação inconsistente.
-            if pagina > 100:
-                break
+                    relatorios.extend(dados_pagina)
 
-        return relatorios
+                    if len(dados_pagina) < itens_por_pagina:
+                        break
+
+                    pagina += 1
+
+            self._set_reports_cache(
+                key=cache_key,
+                relatorios=relatorios,
+            )
+
+            return relatorios
 
     async def buscar_projeto_por_codproj(
-            self,
-            *,
-            codproj: int,
+        self,
+        *,
+        codproj: int,
     ) -> dict[str, Any]:
         """
-        Busca um projeto da VExpenses pelo código
-        de integração, utilizando o CODPROJ do Sankhya.
+        Busca um projeto da VExpenses pelo integration_id,
+        utilizando o CODPROJ do Sankhya.
         """
 
         if codproj <= 0:
             raise ValueError(
                 "O código do projeto deve ser maior que zero."
             )
+
+        integration_id_procurado = str(codproj).strip()
+
+        cached = self._get_project_by_integration_cache(
+            integration_id_procurado
+        )
+
+        if cached is not None:
+            return cached
 
         pagina = 1
         itens_por_pagina = 100
@@ -238,38 +402,109 @@ class VExpensesService:
                 itens_por_pagina=itens_por_pagina,
             )
 
-            projetos = resposta.get("data", [])
+            projetos = (
+                resposta.get("data", [])
+                if isinstance(resposta, dict)
+                else []
+            )
 
             if not isinstance(projetos, list):
                 break
 
-            for projeto in projetos:
+            for projeto_original in projetos:
+                if not isinstance(projeto_original, dict):
+                    continue
+
                 integration_id = str(
-                    projeto.get("integration_id") or ""
+                    projeto_original.get("integration_id") or ""
                 ).strip()
 
-                if integration_id == str(codproj):
-                    return {
-                        "id": projeto.get("id"),
-                        "name": projeto.get("name"),
-                        "company_name": projeto.get(
-                            "company_name"
-                        ),
-                        "integration_id": integration_id,
-                        "on": projeto.get("on"),
-                    }
+                projeto = self._normalizar_projeto_integracao(
+                    projeto_original
+                )
+
+                # Aproveita a paginação para preencher cache de outros
+                # projetos e acelerar consultas futuras do dashboard.
+                if integration_id:
+                    self._set_project_cache(projeto)
+
+                if integration_id == integration_id_procurado:
+                    return projeto
 
             if len(projetos) < itens_por_pagina:
                 break
 
             pagina += 1
 
-            if pagina > 100:
+            if pagina > self.MAX_PAGES:
                 break
 
         raise ValueError(
             "Nenhum projeto da VExpenses foi encontrado "
             f"com integration_id igual a {codproj}."
+        )
+
+    async def _obter_projeto_normalizado(
+        self,
+        *,
+        project_id: int,
+    ) -> dict[str, Any]:
+        cached = self._get_project_by_id_cache(project_id)
+
+        if cached is not None:
+            return cached
+
+        resposta = await self.buscar_projeto_por_id(
+            project_id=project_id,
+        )
+
+        projeto = self._normalizar_projeto(
+            resposta=resposta,
+            project_id=project_id,
+        )
+
+        self._set_project_cache(projeto)
+
+        return projeto
+
+    async def _carregar_paginas_em_paralelo(
+        self,
+        *,
+        pagina_inicial: int,
+        pagina_final: int,
+        itens_por_pagina: int,
+        data_inicial: date,
+        data_final: date,
+        incluir_rateios: bool,
+    ) -> list[list[dict[str, Any]]]:
+        semaphore = asyncio.Semaphore(
+            self.MAX_CONCURRENT_PAGES
+        )
+
+        async def carregar_pagina(
+            pagina: int,
+        ) -> list[dict[str, Any]]:
+            async with semaphore:
+                resposta = await self.listar_relatorios_aprovados(
+                    pagina=pagina,
+                    itens_por_pagina=itens_por_pagina,
+                    data_inicial=data_inicial,
+                    data_final=data_final,
+                    incluir_rateios=incluir_rateios,
+                )
+
+                return self._extrair_dados_pagina(
+                    resposta
+                )
+
+        return await asyncio.gather(
+            *[
+                carregar_pagina(pagina)
+                for pagina in range(
+                    pagina_inicial,
+                    pagina_final + 1,
+                )
+            ]
         )
 
     def _normalizar_movimentos(
@@ -345,7 +580,6 @@ class VExpensesService:
                     {
                         "project_id": project_id,
                         "course_id": despesa.get("course_id"),
-
                         "report_id": relatorio.get("id"),
                         "report_description": relatorio.get(
                             "description"
@@ -359,7 +593,6 @@ class VExpensesService:
                         ),
                         "pdf_link": relatorio.get("pdf_link"),
                         "excel_link": relatorio.get("excel_link"),
-
                         "expense_id": despesa.get("id"),
                         "expense_date": (
                             data_despesa.isoformat()
@@ -371,33 +604,27 @@ class VExpensesService:
                             "observation"
                         ),
                         "receipt_url": despesa.get("reicept_url"),
-
                         "user_id": usuario.get("id"),
                         "user_name": usuario.get("name"),
                         "user_email": usuario.get("email"),
-
                         "expense_type_id": tipo_despesa.get("id"),
                         "expense_type": tipo_despesa.get(
                             "description"
                         ),
-
                         "cost_center_id": centro_custo.get("id"),
                         "cost_center_integration_id": (
                             centro_custo.get("integration_id")
                         ),
                         "cost_center": centro_custo.get("name"),
-
                         "payment_method_id": forma_pagamento.get(
                             "id"
                         ),
                         "payment_method": forma_pagamento.get(
                             "description"
                         ),
-
                         "reimbursable": bool(
                             despesa.get("reimbursable")
                         ),
-
                         "currency": (
                             despesa.get("converted_currency_iso")
                             or despesa.get("original_currency_iso")
@@ -409,7 +636,6 @@ class VExpensesService:
                         "value": self._money_decimal(
                             valor_original
                         ),
-
                         "apportionments": rateios,
                     }
                 )
@@ -558,6 +784,208 @@ class VExpensesService:
 
         return resultado
 
+    def _get_reports_cache(
+        self,
+        key: tuple[date, date, bool],
+    ) -> list[dict[str, Any]] | None:
+        cached = self._reports_cache.get(key)
+
+        if cached is None:
+            return None
+
+        expires_at, relatorios = cached
+
+        if monotonic() >= expires_at:
+            self._reports_cache.pop(key, None)
+            return None
+
+        return relatorios
+
+    def _set_reports_cache(
+        self,
+        *,
+        key: tuple[date, date, bool],
+        relatorios: list[dict[str, Any]],
+    ) -> None:
+        self._reports_cache[key] = (
+            monotonic() + self.REPORTS_CACHE_TTL_SECONDS,
+            relatorios,
+        )
+
+    def _get_project_by_id_cache(
+        self,
+        project_id: int,
+    ) -> dict[str, Any] | None:
+        return self._get_project_cache_value(
+            self._project_by_id_cache,
+            project_id,
+        )
+
+    def _get_project_by_integration_cache(
+        self,
+        integration_id: str,
+    ) -> dict[str, Any] | None:
+        return self._get_project_cache_value(
+            self._project_by_integration_cache,
+            integration_id,
+        )
+
+    @staticmethod
+    def _get_project_cache_value(
+        cache: dict[Any, tuple[float, dict[str, Any]]],
+        key: Any,
+    ) -> dict[str, Any] | None:
+        cached = cache.get(key)
+
+        if cached is None:
+            return None
+
+        expires_at, projeto = cached
+
+        if monotonic() >= expires_at:
+            cache.pop(key, None)
+            return None
+
+        return projeto
+
+    def _set_project_cache(
+        self,
+        projeto: dict[str, Any],
+    ) -> None:
+        expires_at = monotonic() + self.PROJECT_CACHE_TTL_SECONDS
+
+        project_id = projeto.get("id")
+        integration_id = str(
+            projeto.get("integration_id") or ""
+        ).strip()
+
+        try:
+            normalized_project_id = int(project_id)
+        except (TypeError, ValueError):
+            normalized_project_id = None
+
+        if normalized_project_id is not None:
+            self._project_by_id_cache[normalized_project_id] = (
+                expires_at,
+                projeto,
+            )
+
+        if integration_id:
+            self._project_by_integration_cache[integration_id] = (
+                expires_at,
+                projeto,
+            )
+
+    @staticmethod
+    def _extrair_dados_pagina(
+        resposta: Any,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(resposta, dict):
+            return []
+
+        dados = resposta.get("data", [])
+
+        if not isinstance(dados, list):
+            return []
+
+        return [
+            item
+            for item in dados
+            if isinstance(item, dict)
+        ]
+
+    @staticmethod
+    def _extrair_ultima_pagina(
+        *,
+        resposta: Any,
+        itens_por_pagina: int,
+    ) -> int | None:
+        if not isinstance(resposta, dict):
+            return None
+
+        meta = resposta.get("meta")
+        pagination = resposta.get("pagination")
+
+        meta_pagination = (
+            meta.get("pagination")
+            if isinstance(meta, dict)
+            else None
+        )
+
+        containers = [
+            resposta,
+            meta,
+            pagination,
+            meta_pagination,
+        ]
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+
+            for campo in (
+                "last_page",
+                "total_pages",
+                "totalPages",
+            ):
+                valor = container.get(campo)
+
+                try:
+                    if valor is not None:
+                        return max(int(valor), 1)
+                except (TypeError, ValueError):
+                    continue
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+
+            total = container.get("total")
+
+            try:
+                if total is not None:
+                    return max(
+                        ceil(int(total) / itens_por_pagina),
+                        1,
+                    )
+            except (TypeError, ValueError):
+                continue
+
+        return None
+
+    @classmethod
+    def _resolver_periodo_dashboard(
+        cls,
+        *,
+        data_inicial: date | None,
+        data_final: date | None,
+    ) -> tuple[date, date]:
+        cls._validar_periodo(
+            data_inicial=data_inicial,
+            data_final=data_final,
+        )
+
+        if data_inicial is not None and data_final is not None:
+            return data_inicial, data_final
+
+        hoje = datetime.now(cls.TIMEZONE).date()
+
+        return date(hoje.year, 1, 1), hoje
+
+    @staticmethod
+    def _normalizar_projeto_integracao(
+        projeto: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "id": projeto.get("id"),
+            "name": projeto.get("name"),
+            "company_name": projeto.get("company_name"),
+            "integration_id": str(
+                projeto.get("integration_id") or ""
+            ).strip(),
+            "on": projeto.get("on"),
+        }
+
     @staticmethod
     def _normalizar_projeto(
         *,
@@ -589,6 +1017,8 @@ class VExpensesService:
             "integration_id": projeto.get("integration_id"),
             "description": descricao,
             "name": descricao,
+            "company_name": projeto.get("company_name"),
+            "on": projeto.get("on"),
         }
 
     @classmethod
@@ -761,12 +1191,22 @@ class VExpensesService:
             )
 
 
+_vexpenses_service: VExpensesService | None = None
+
+
 def get_vexpenses_service() -> VExpensesService:
     """
-    Cria o service reutilizando o client singleton,
-    que mantém o pool de conexões HTTP.
+    Retorna uma única instância do service por processo.
+
+    Isso mantém os caches de projetos e relatórios entre as
+    requisições atendidas pelo mesmo dyno/processo.
     """
 
-    return VExpensesService(
-        client=get_vexpenses_client(),
-    )
+    global _vexpenses_service
+
+    if _vexpenses_service is None:
+        _vexpenses_service = VExpensesService(
+            client=get_vexpenses_client(),
+        )
+
+    return _vexpenses_service

@@ -5,7 +5,10 @@ from typing import Any
 import httpx
 from fastapi import Depends
 
-from app.core.config import Settings, get_settings
+from app.core.config import (
+    Settings,
+    get_settings,
+)
 from app.core.exceptions import SankhyaRequestError
 from app.services.sankhya_auth import (
     SankhyaAuthService,
@@ -20,15 +23,29 @@ class SankhyaClient:
     """
     Cliente HTTP reutilizável para comunicação com o Sankhya.
 
-    Consultas de leitura podem ser repetidas automaticamente
-    quando houver uma falha transitória de conexão.
+    Recursos implementados:
+
+    - pool de conexões HTTP;
+    - renovação automática do token em caso de 401;
+    - retry para falhas transitórias;
+    - retry para mensagens de concorrência do Sankhya;
+    - serialização das consultas do DbExplorerSP.
+
+    A serialização impede que a mesma sessão Sankhya
+    execute duas consultas simultaneamente.
     """
 
     MAX_TENTATIVAS = 3
+
     TEMPO_BASE_RETRY_SEGUNDOS = 0.8
 
-    # Somente serviços seguros para repetição automática.
     SERVICOS_COM_RETRY = frozenset(
+        {
+            "DbExplorerSP.executeQuery",
+        }
+    )
+
+    SERVICOS_SERIALIZADOS = frozenset(
         {
             "DbExplorerSP.executeQuery",
         }
@@ -58,6 +75,8 @@ class SankhyaClient:
         self._settings = settings
         self._auth_service = auth_service
 
+        self._dbexplorer_lock = asyncio.Lock()
+
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(
                 connect=15.0,
@@ -73,7 +92,6 @@ class SankhyaClient:
                     settings
                     .sankhya_max_keepalive_connections
                 ),
-                # Evita manter conexões antigas por muito tempo.
                 keepalive_expiry=30.0,
             ),
             headers={
@@ -96,11 +114,48 @@ class SankhyaClient:
         """
         Executa um serviço Sankhya.
 
-        O retry de conexão é habilitado automaticamente
-        somente para serviços considerados seguros.
+        Consultas DbExplorerSP são colocadas em uma fila,
+        impedindo que a mesma sessão execute duas consultas
+        simultaneamente.
+        """
 
-        Para outros serviços, ele pode ser habilitado
-        explicitamente com retry_on_transient_error=True.
+        if service_name in self.SERVICOS_SERIALIZADOS:
+            async with self._dbexplorer_lock:
+                return await self._execute_service_internal(
+                    service_name=service_name,
+                    request_body=request_body,
+                    retry_on_unauthorized=(
+                        retry_on_unauthorized
+                    ),
+                    retry_on_transient_error=(
+                        retry_on_transient_error
+                    ),
+                )
+
+        return await self._execute_service_internal(
+            service_name=service_name,
+            request_body=request_body,
+            retry_on_unauthorized=(
+                retry_on_unauthorized
+            ),
+            retry_on_transient_error=(
+                retry_on_transient_error
+            ),
+        )
+
+    async def _execute_service_internal(
+        self,
+        *,
+        service_name: str,
+        request_body: dict[str, Any],
+        retry_on_unauthorized: bool,
+        retry_on_transient_error: bool | None,
+    ) -> dict[str, Any]:
+        """
+        Executa efetivamente a requisição.
+
+        Este método não adquire o lock novamente. Isso evita
+        deadlock quando o token precisa ser renovado.
         """
 
         permitir_retry = (
@@ -138,7 +193,9 @@ class SankhyaClient:
                     self._settings.sankhya_base_url,
                     params=params,
                     headers={
-                        "Authorization": f"Bearer {token}",
+                        "Authorization": (
+                            f"Bearer {token}"
+                        ),
                     },
                     json=payload,
                 )
@@ -156,8 +213,12 @@ class SankhyaClient:
                     await self._aguardar_nova_tentativa(
                         service_name=service_name,
                         tentativa=tentativa,
+                        quantidade_tentativas=(
+                            quantidade_tentativas
+                        ),
                         motivo=type(exc).__name__,
                     )
+
                     continue
 
                 raise SankhyaRequestError(
@@ -178,21 +239,23 @@ class SankhyaClient:
                     await self._aguardar_nova_tentativa(
                         service_name=service_name,
                         tentativa=tentativa,
+                        quantidade_tentativas=(
+                            quantidade_tentativas
+                        ),
                         motivo=type(exc).__name__,
                     )
+
                     continue
 
                 raise SankhyaRequestError(
-                    f"Erro de conexão ao executar "
+                    "Erro de conexão ao executar "
                     f"{service_name} após "
                     f"{tentativa} tentativa(s)."
                 ) from exc
 
             except httpx.RequestError as exc:
-                # Demais erros HTTP não são considerados
-                # necessariamente transitórios.
                 raise SankhyaRequestError(
-                    f"Erro de conexão ao executar "
+                    "Erro de conexão ao executar "
                     f"{service_name}."
                 ) from exc
 
@@ -208,9 +271,9 @@ class SankhyaClient:
 
                 await self._auth_service.refresh_token()
 
-                return await self.execute_service(
-                    service_name,
-                    request_body,
+                return await self._execute_service_internal(
+                    service_name=service_name,
+                    request_body=request_body,
                     retry_on_unauthorized=False,
                     retry_on_transient_error=(
                         permitir_retry
@@ -231,10 +294,14 @@ class SankhyaClient:
                 await self._aguardar_nova_tentativa(
                     service_name=service_name,
                     tentativa=tentativa,
+                    quantidade_tentativas=(
+                        quantidade_tentativas
+                    ),
                     motivo=(
                         f"HTTP {response.status_code}"
                     ),
                 )
+
                 continue
 
             data = self._parse_response_json(
@@ -244,17 +311,45 @@ class SankhyaClient:
 
             if response.is_error:
                 raise SankhyaRequestError(
-                    f"Erro HTTP ao executar "
+                    "Erro HTTP ao executar "
                     f"{service_name}.",
                     status_code=response.status_code,
                     response_data=data,
                 )
 
             if str(data.get("status")) == "0":
+                status_message = str(
+                    data.get("statusMessage") or ""
+                ).strip()
+
+                if (
+                    self._eh_erro_de_concorrencia(
+                        status_message
+                    )
+                    and self._pode_tentar_novamente(
+                        permitir_retry=permitir_retry,
+                        tentativa=tentativa,
+                        quantidade_tentativas=(
+                            quantidade_tentativas
+                        ),
+                    )
+                ):
+                    await self._aguardar_nova_tentativa(
+                        service_name=service_name,
+                        tentativa=tentativa,
+                        quantidade_tentativas=(
+                            quantidade_tentativas
+                        ),
+                        motivo="concorrência da sessão",
+                    )
+
+                    continue
+
                 raise SankhyaRequestError(
-                    data.get(
-                        "statusMessage",
-                        f"Erro no serviço {service_name}.",
+                    status_message
+                    or (
+                        f"Erro no serviço "
+                        f"{service_name}."
                     ),
                     response_data=data,
                 )
@@ -262,8 +357,9 @@ class SankhyaClient:
             return data
 
         raise SankhyaRequestError(
-            f"Erro de conexão ao executar {service_name} "
-            f"após {quantidade_tentativas} tentativas."
+            "Erro de conexão ao executar "
+            f"{service_name} após "
+            f"{quantidade_tentativas} tentativas."
         ) from ultimo_erro
 
     @staticmethod
@@ -278,11 +374,40 @@ class SankhyaClient:
             and tentativa < quantidade_tentativas
         )
 
+    @staticmethod
+    def _eh_erro_de_concorrencia(
+        mensagem: str,
+    ) -> bool:
+        """
+        Identifica mensagens como:
+
+        - situação de concorrência;
+        - mesma sessão HTTP;
+        - requisição simultânea.
+        """
+
+        texto = " ".join(
+            str(mensagem or "")
+            .casefold()
+            .split()
+        )
+
+        return (
+            "concorr" in texto
+            and (
+                "simult" in texto
+                or "sessão http" in texto
+                or "sessao http" in texto
+                or "duas vezes" in texto
+            )
+        )
+
     async def _aguardar_nova_tentativa(
         self,
         *,
         service_name: str,
         tentativa: int,
+        quantidade_tentativas: int,
         motivo: str,
     ) -> None:
         """
@@ -303,7 +428,7 @@ class SankhyaClient:
             "Nova tentativa em %.1f segundo(s).",
             service_name,
             tentativa,
-            self.MAX_TENTATIVAS,
+            quantidade_tentativas,
             motivo,
             tempo_espera,
         )
@@ -324,7 +449,8 @@ class SankhyaClient:
 
             if len(corpo_resposta) > 1000:
                 corpo_resposta = (
-                    corpo_resposta[:1000] + "..."
+                    corpo_resposta[:1000]
+                    + "..."
                 )
 
             raise SankhyaRequestError(
@@ -360,8 +486,8 @@ def get_sankhya_client(
 
     if _client is None:
         _client = SankhyaClient(
-            settings,
-            auth_service,
+            settings=settings,
+            auth_service=auth_service,
         )
 
     return _client
