@@ -8,6 +8,9 @@ from app.services.dashboard_service import (
     DashboardService,
     get_dashboard_service,
 )
+from app.api.routes.vexpenses_routes import (
+    router as vexpenses_router,
+)
 
 
 router = APIRouter(
@@ -16,6 +19,7 @@ router = APIRouter(
     dependencies=[Depends(validar_api_key)],
 )
 
+router.include_router(vexpenses_router)
 
 @router.post("/kpis")
 async def load_dashboard_kpis(
@@ -59,6 +63,8 @@ async def get_pagamentos(
         filters
     )
 
+
+
 @router.post("/raw")
 async def load_dashboard_raw(
     filters: DashboardFilters,
@@ -67,4 +73,3 @@ async def load_dashboard_raw(
     ),
 ) -> dict[str, Any]:
     return await service.load_all_raw(filters)
-

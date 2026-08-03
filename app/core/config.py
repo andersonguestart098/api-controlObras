@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -90,6 +90,30 @@ class Settings(BaseSettings):
     mongodb_database: str = Field(
         default="dashboard_obras",
         alias="MONGODB_DATABASE",
+    )
+
+    vexpenses_base_url: str = Field(
+        default="https://api.vexpenses.com/v2",
+        alias="VEXPENSES_BASE_URL",
+    )
+
+    vexpenses_token: SecretStr = Field(
+        alias="VEXPENSES_TOKEN",
+    )
+
+    vexpenses_timeout_seconds: float = Field(
+        default=30.0,
+        alias="VEXPENSES_TIMEOUT_SECONDS",
+    )
+
+    vexpenses_max_connections: int = Field(
+        default=10,
+        alias="VEXPENSES_MAX_CONNECTIONS",
+    )
+
+    vexpenses_max_keepalive_connections: int = Field(
+        default=5,
+        alias="VEXPENSES_MAX_KEEPALIVE_CONNECTIONS",
     )
 
     scheduler_enabled: bool = Field(

@@ -1,94 +1,312 @@
 SELECT
-    FIN.NUNOTA,
-    FIN.NUFIN,
-    FIN.DESDOBRAMENTO AS PARCELA,
+    DADOS.NUNOTA,
+    DADOS.NUFIN,
+    DADOS.PARCELA,
 
-    FIN.DTNEG,
-    FIN.DTVENC,
-    FIN.DHBAIXA,
+    DADOS.DTNEG,
+    DADOS.DTVENC,
+    DADOS.DHBAIXA,
 
-    CAB.CODPROJ,
-    PRJ.IDENTIFICACAO AS PROJETO,
+    DADOS.CODPROJ,
+    DADOS.PROJETO,
 
-    CAB.CODTIPOPER,
-    TOP.DESCROPER,
+    DADOS.CODTIPOPER,
+    DADOS.DESCROPER,
 
-    CAB.CODTIPVENDA,
-    TPV.DESCRTIPVENDA AS TIPO_NEGOCIACAO,
+    DADOS.CODTIPVENDA,
+    DADOS.TIPO_NEGOCIACAO,
 
-    PAR.RAZAOSOCIAL AS PARCEIRO,
-    PAR.CGC_CPF,
+    DADOS.CODPARC,
+    DADOS.PARCEIRO,
+    DADOS.CGC_CPF,
 
-    NVL(
-        FIN.VLRDESDOB,
-        0
-    ) AS VALOR_TITULO,
-
-    NVL(
-        FIN.VLRBAIXA,
-        0
-    ) AS VALOR_BAIXA,
-
-    NVL(
-        FIN.VLRDESDOB,
-        0
-    )
-    - NVL(
-        FIN.VLRBAIXA,
-        0
-    ) AS SALDO_ABERTO,
+    DADOS.RECDESP,
 
     CASE
-        WHEN FIN.DHBAIXA IS NOT NULL
-            THEN 'PAGO'
+        WHEN DADOS.RECDESP = 1
+            THEN 'RECEITA'
 
-        WHEN FIN.DTVENC < TRUNC(SYSDATE)
+        WHEN DADOS.RECDESP = -1
+            THEN 'DESPESA'
+
+        ELSE 'OUTRO'
+    END AS TIPO_FINANCEIRO,
+
+    DADOS.VALOR_TITULO,
+    DADOS.VALOR_LIQUIDO,
+    DADOS.VALOR_BAIXA,
+
+    DADOS.NUACERTO,
+    DADOS.TIPACERTO,
+
+    CASE
+        WHEN DADOS.DHBAIXA IS NULL
+         AND DADOS.DTVENC < TRUNC(SYSDATE)
             THEN 'VENCIDO'
 
-        ELSE 'EM ABERTO'
-    END AS STATUS_TITULO,
+        WHEN DADOS.DHBAIXA IS NULL
+            THEN 'EM ABERTO'
 
-    MBC.HISTORICO,
-    MBC.VLRLANC,
-    MBC.DTLANC,
-    MBC.RECDESP,
-    MBC.ORIGMOV,
-    MBC.NUBCO
+        WHEN DADOS.TIPACERTO = 'C'
+            THEN 'QUITADO POR COMPENSACAO FINANCEIRA'
 
-FROM TGFFIN FIN
+        WHEN DADOS.TIPACERTO = 'V'
+            THEN 'QUITADO COM CREDITO DE DEVOLUCAO'
 
-INNER JOIN TGFCAB CAB
-        ON CAB.NUNOTA = FIN.NUNOTA
+        WHEN DADOS.NUBCO_MOVIMENTO IS NOT NULL
+            THEN 'RECEBIDO EM CONTA'
 
-LEFT JOIN TGFTOP TOP
-       ON TOP.CODTIPOPER = CAB.CODTIPOPER
-      AND TOP.DHALTER = CAB.DHTIPOPER
+        ELSE 'OUTRA FORMA DE BAIXA'
+    END AS FORMA_LIQUIDACAO,
 
-LEFT JOIN TGFTPV TPV
-       ON TPV.CODTIPVENDA = CAB.CODTIPVENDA
-      AND TPV.DHALTER = CAB.DHTIPVENDA
+    /*
+       DINHEIRO EFETIVAMENTE RECEBIDO
+    */
+    CASE
+        WHEN DADOS.DHBAIXA IS NOT NULL
+         AND DADOS.RECDESP = 1
+         AND DADOS.TIPACERTO IS NULL
+         AND DADOS.NUBCO_MOVIMENTO IS NOT NULL
+        THEN ABS(
+            NVL(
+                NULLIF(DADOS.VALOR_BAIXA, 0),
+                DADOS.VALOR_LIQUIDO
+            )
+        )
 
-LEFT JOIN TCSPRJ PRJ
-       ON PRJ.CODPROJ = CAB.CODPROJ
+        ELSE 0
+    END AS VALOR_RECEBIDO_EM_CONTA,
 
-LEFT JOIN TGFPAR PAR
-       ON PAR.CODPARC = FIN.CODPARC
+    /*
+       TÍTULO QUITADO POR COMPENSAÇÃO,
+       SEM ENTRADA DE DINHEIRO
+    */
+    CASE
+        WHEN DADOS.DHBAIXA IS NOT NULL
+         AND DADOS.RECDESP = 1
+         AND DADOS.TIPACERTO IN ('C', 'V')
+        THEN ABS(
+            NVL(
+                NULLIF(DADOS.VALOR_BAIXA, 0),
+                DADOS.VALOR_LIQUIDO
+            )
+        )
 
-LEFT JOIN TGFMBC MBC
-       ON MBC.NUBCO = FIN.NUBCO
+        ELSE 0
+    END AS VALOR_COMPENSADO,
 
-WHERE CAB.CODTIPOPER IN (
-    1101,
-    1107,
-    1164,
-    1166
-)
-  AND CAB.CODPROJ = {{CODPROJ}}
+    /*
+       VALOR AINDA EM ABERTO
+    */
+    CASE
+        WHEN DADOS.DHBAIXA IS NULL
+         AND DADOS.RECDESP = 1
+        THEN GREATEST(
+            ABS(DADOS.VALOR_LIQUIDO)
+            - ABS(NVL(DADOS.VALOR_BAIXA, 0)),
+            0
+        )
 
-/*FILTRO_DTNEG_INICIAL*/
-/*FILTRO_DTNEG_FINAL*/
+        ELSE 0
+    END AS VALOR_EM_ABERTO,
+
+    /*
+       VALOR VENCIDO E AINDA NÃO PAGO
+    */
+    CASE
+        WHEN DADOS.DHBAIXA IS NULL
+         AND DADOS.RECDESP = 1
+         AND DADOS.DTVENC < TRUNC(SYSDATE)
+        THEN GREATEST(
+            ABS(DADOS.VALOR_LIQUIDO)
+            - ABS(NVL(DADOS.VALOR_BAIXA, 0)),
+            0
+        )
+
+        ELSE 0
+    END AS VALOR_VENCIDO,
+
+    DADOS.HISTORICO,
+    DADOS.VLRLANC,
+    DADOS.DTLANC,
+    DADOS.MBC_RECDESP,
+    DADOS.ORIGMOV,
+    DADOS.NUBCO
+
+FROM (
+    SELECT
+        FIN.NUNOTA,
+        FIN.NUFIN,
+        FIN.DESDOBRAMENTO AS PARCELA,
+
+        FIN.DTNEG,
+        FIN.DTVENC,
+        FIN.DHBAIXA,
+
+        CAB.CODPROJ,
+        PRJ.IDENTIFICACAO AS PROJETO,
+
+        CAB.CODTIPOPER,
+        TOP.DESCROPER,
+
+        CAB.CODTIPVENDA,
+        TPV.DESCRTIPVENDA AS TIPO_NEGOCIACAO,
+
+        FIN.CODPARC,
+        PAR.RAZAOSOCIAL AS PARCEIRO,
+        PAR.CGC_CPF,
+
+        FIN.RECDESP,
+
+        NVL(
+            FIN.VLRDESDOB,
+            0
+        ) AS VALOR_TITULO,
+
+        /*
+           MESMA EXPRESSÃO DO CAMPO CALCULADO
+           VLRLIQUIDO DO SANKHYA
+        */
+        (
+              NVL(FIN.VLRDESDOB, 0)
+
+            + CASE
+                  WHEN FIN.TIPMULTA = '1'
+                      THEN NVL(FIN.VLRMULTA, 0)
+                  ELSE 0
+              END
+
+            + CASE
+                  WHEN FIN.TIPJURO = '1'
+                      THEN NVL(FIN.VLRJURO, 0)
+                  ELSE 0
+              END
+
+            + NVL(FIN.DESPCART, 0)
+            + NVL(FIN.VLRVENDOR, 0)
+            - NVL(FIN.VLRDESC, 0)
+
+            - CASE
+                  WHEN FIN.IRFRETIDO = 'S'
+                      THEN NVL(FIN.VLRIRF, 0)
+                  ELSE 0
+              END
+
+            - CASE
+                  WHEN FIN.ISSRETIDO = 'S'
+                      THEN NVL(FIN.VLRISS, 0)
+                  ELSE 0
+              END
+
+            - CASE
+                  WHEN FIN.INSSRETIDO = 'S'
+                      THEN NVL(FIN.VLRINSS, 0)
+                  ELSE 0
+              END
+
+            - NVL(FIN.CARTAODESC, 0)
+
+            + NVL(
+                (
+                    SELECT ROUND(
+                        SUM(IMF.VALOR * IMF.TIPIMP),
+                        2
+                    )
+                    FROM TGFIMF IMF
+                    WHERE IMF.NUFIN = FIN.NUFIN
+                ),
+                0
+            )
+
+            + NVL(FIN.VLRMULTANEGOC, 0)
+            + NVL(FIN.VLRJURONEGOC, 0)
+            - NVL(FIN.VLRMULTALIB, 0)
+            - NVL(FIN.VLRJUROLIB, 0)
+            + NVL(FIN.VLRVARCAMBIAL, 0)
+
+        ) * NVL(FIN.RECDESP, 0) AS VALOR_LIQUIDO,
+
+        NVL(
+            FIN.VLRBAIXA,
+            0
+        ) AS VALOR_BAIXA,
+
+        ACER.NUACERTO,
+        ACER.TIPACERTO,
+
+        MBC.HISTORICO,
+        MBC.VLRLANC,
+        MBC.DTLANC,
+        MBC.RECDESP AS MBC_RECDESP,
+        MBC.ORIGMOV,
+        MBC.NUBCO,
+
+        MBC.NUBCO AS NUBCO_MOVIMENTO
+
+    FROM TGFFIN FIN
+
+    INNER JOIN TGFCAB CAB
+            ON CAB.NUNOTA = FIN.NUNOTA
+
+    LEFT JOIN TGFTOP TOP
+           ON TOP.CODTIPOPER = CAB.CODTIPOPER
+          AND TOP.DHALTER = CAB.DHTIPOPER
+
+    LEFT JOIN TGFTPV TPV
+           ON TPV.CODTIPVENDA = CAB.CODTIPVENDA
+          AND TPV.DHALTER = CAB.DHTIPVENDA
+
+    LEFT JOIN TCSPRJ PRJ
+           ON PRJ.CODPROJ = CAB.CODPROJ
+
+    LEFT JOIN TGFPAR PAR
+           ON PAR.CODPARC = FIN.CODPARC
+
+    LEFT JOIN (
+        SELECT
+            FRE.NUFIN,
+
+            MAX(
+                CASE
+                    WHEN FRE.TIPACERTO IN ('C', 'V')
+                        THEN FRE.NUACERTO
+                    ELSE NULL
+                END
+            ) AS NUACERTO,
+
+            MAX(
+                CASE
+                    WHEN FRE.TIPACERTO IN ('C', 'V')
+                        THEN FRE.TIPACERTO
+                    ELSE NULL
+                END
+            ) AS TIPACERTO
+
+        FROM TGFFRE FRE
+
+        GROUP BY
+            FRE.NUFIN
+    ) ACER
+           ON ACER.NUFIN = FIN.NUFIN
+
+    LEFT JOIN TGFMBC MBC
+           ON MBC.NUBCO = FIN.NUBCO
+
+    WHERE CAB.CODTIPOPER IN (
+        1101,
+        1107,
+        1164,
+        1166
+    )
+
+      AND CAB.CODPROJ = {{CODPROJ}}
+
+    /*FILTRO_DTNEG_INICIAL*/
+    /*FILTRO_DTNEG_FINAL*/
+
+) DADOS
 
 ORDER BY
-    FIN.NUNOTA,
-    FIN.DTVENC,
-    FIN.DESDOBRAMENTO
+    DADOS.NUNOTA,
+    DADOS.DTVENC,
+    DADOS.PARCELA

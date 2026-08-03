@@ -13,7 +13,7 @@ QUERY_REGISTRY: dict[
     str,
     SankhyaQueryDefinition,
 ] = {
-    "pagamentos": SankhyaQueryDefinition(
+        "pagamentos": SankhyaQueryDefinition(
         code="pagamentos",
         name="Pagamentos e títulos da obra",
         filename="pagamentos.sql",
@@ -23,9 +23,13 @@ QUERY_REGISTRY: dict[
             "NUFIN",
             "CODPROJ",
             "VALOR_TITULO",
+            "VALOR_LIQUIDO",
             "VALOR_BAIXA",
-            "SALDO_ABERTO",
-            "STATUS_TITULO",
+            "FORMA_LIQUIDACAO",
+            "VALOR_RECEBIDO_EM_CONTA",
+            "VALOR_COMPENSADO",
+            "VALOR_EM_ABERTO",
+            "VALOR_VENCIDO",
         ],
     ),
 

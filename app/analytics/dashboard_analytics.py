@@ -283,22 +283,24 @@ class DashboardAnalytics:
 
     @classmethod
     def _build_pagamentos_kpis(
-        cls,
-        rows: list[dict[str, Any]],
+            cls,
+            rows: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
         Monta os indicadores financeiros dos títulos
         vinculados à obra.
 
-        Considera os status retornados pela consulta:
+        Separa corretamente:
 
-        - PAGO
-        - VENCIDO
-        - EM ABERTO
+        - dinheiro efetivamente recebido em conta;
+        - títulos quitados por compensação;
+        - títulos em aberto;
+        - títulos vencidos;
+        - outras formas de baixa.
         """
 
-        # Evita somar o mesmo título duas vezes caso
-        # algum JOIN da consulta duplique o NUFIN.
+        # Evita somar o mesmo título mais de uma vez
+        # caso algum JOIN duplique o NUFIN.
         titulos_por_nufin: dict[Any, dict[str, Any]] = {}
         titulos_sem_nufin: list[dict[str, Any]] = []
 
@@ -312,76 +314,147 @@ class DashboardAnalytics:
             titulos_por_nufin[nufin] = row
 
         titulos = (
-            list(titulos_por_nufin.values())
-            + titulos_sem_nufin
+                list(titulos_por_nufin.values())
+                + titulos_sem_nufin
         )
 
-        pagos: list[dict[str, Any]] = []
+        recebidos_em_conta: list[dict[str, Any]] = []
+        compensados: list[dict[str, Any]] = []
         vencidos: list[dict[str, Any]] = []
         em_aberto: list[dict[str, Any]] = []
+        outras_baixas: list[dict[str, Any]] = []
 
         for row in titulos:
-            status = str(
-                row.get("status_titulo") or ""
+            forma_liquidacao = str(
+                row.get("forma_liquidacao") or ""
             ).strip().upper()
 
-            if status == "PAGO":
-                pagos.append(row)
+            if forma_liquidacao == "RECEBIDO EM CONTA":
+                recebidos_em_conta.append(row)
 
-            elif status == "VENCIDO":
+            elif forma_liquidacao in (
+                    "QUITADO POR COMPENSACAO FINANCEIRA",
+                    "QUITADO COM CREDITO DE DEVOLUCAO",
+            ):
+                compensados.append(row)
+
+            elif forma_liquidacao == "VENCIDO":
                 vencidos.append(row)
 
-            elif status in (
-                "EM ABERTO",
-                "EM_ABERTO",
-                "ABERTO",
+            elif forma_liquidacao in (
+                    "EM ABERTO",
+                    "EM_ABERTO",
+                    "ABERTO",
             ):
                 em_aberto.append(row)
+
+            elif forma_liquidacao == "OUTRA FORMA DE BAIXA":
+                outras_baixas.append(row)
 
         valor_titulos = cls._sum_field(
             titulos,
             "valor_titulo",
         )
 
-        valor_pago = cls._sum_field(
+        valor_liquido = cls._sum_field(
             titulos,
+            "valor_liquido",
+        )
+
+        # Dinheiro que realmente entrou no banco.
+        valor_recebido_em_conta = cls._sum_field(
+            titulos,
+            "valor_recebido_em_conta",
+        )
+
+        # Títulos quitados com créditos/compensações.
+        valor_compensado = cls._sum_field(
+            titulos,
+            "valor_compensado",
+        )
+
+        # Inclui títulos normais em aberto e vencidos.
+        saldo_aberto = cls._sum_field(
+            titulos,
+            "valor_em_aberto",
+        )
+
+        # Apenas títulos vencidos.
+        valor_vencido = cls._sum_field(
+            titulos,
+            "valor_vencido",
+        )
+
+        # Apenas títulos ainda não vencidos.
+        valor_em_aberto = cls._sum_field(
+            em_aberto,
+            "valor_em_aberto",
+        )
+
+        valor_outras_baixas = cls._sum_field(
+            outras_baixas,
             "valor_baixa",
         )
 
-        saldo_aberto = cls._sum_field(
-            titulos,
-            "saldo_aberto",
+        quantidade_recebidos = len(recebidos_em_conta)
+        quantidade_compensados = len(compensados)
+        quantidade_outras_baixas = len(outras_baixas)
+
+        quantidade_quitados = (
+                quantidade_recebidos
+                + quantidade_compensados
+                + quantidade_outras_baixas
         )
 
-        valor_vencido = cls._sum_field(
-            vencidos,
-            "saldo_aberto",
-        )
-
-        valor_em_aberto = cls._sum_field(
-            em_aberto,
-            "saldo_aberto",
+        valor_quitado_total = (
+                valor_recebido_em_conta
+                + valor_compensado
+                + valor_outras_baixas
         )
 
         return {
             "quantidade_titulos": len(titulos),
 
-            "quantidade_pagos": len(pagos),
-
-            "quantidade_vencidos": len(
-                vencidos
+            # Recebimento bancário real
+            "quantidade_recebidos_em_conta": (
+                quantidade_recebidos
+            ),
+            "valor_recebido_em_conta": cls._money(
+                valor_recebido_em_conta
             ),
 
-            "quantidade_em_aberto": len(
-                em_aberto
+            # Compensações sem entrada de dinheiro
+            "quantidade_compensados": (
+                quantidade_compensados
             ),
+            "valor_compensado": cls._money(
+                valor_compensado
+            ),
+
+            # Outras baixas
+            "quantidade_outras_baixas": (
+                quantidade_outras_baixas
+            ),
+            "valor_outras_baixas": cls._money(
+                valor_outras_baixas
+            ),
+
+            # Total de títulos liquidados,
+            # independentemente da forma de liquidação
+            "quantidade_quitados": quantidade_quitados,
+            "valor_quitado_total": cls._money(
+                valor_quitado_total
+            ),
+
+            "quantidade_vencidos": len(vencidos),
+            "quantidade_em_aberto": len(em_aberto),
 
             "valor_titulos": cls._money(
                 valor_titulos
             ),
 
-            "valor_pago": cls._money(
-                valor_pago
+            "valor_liquido": cls._money(
+                valor_liquido
             ),
 
             "saldo_aberto": cls._money(
@@ -395,8 +468,13 @@ class DashboardAnalytics:
             "valor_em_aberto": cls._money(
                 valor_em_aberto
             ),
-        }
 
+        "quantidade_pagos": quantidade_recebidos,
+
+        "valor_pago": cls._money(
+            valor_recebido_em_conta
+        ),
+        }
     @classmethod
     def _build_movimento_kpis(
         cls,
