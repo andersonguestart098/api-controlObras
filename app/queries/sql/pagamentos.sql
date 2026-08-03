@@ -53,24 +53,35 @@ SELECT
         WHEN DADOS.TIPACERTO = 'V'
             THEN 'QUITADO COM CREDITO DE DEVOLUCAO'
 
-        WHEN DADOS.NUBCO_MOVIMENTO IS NOT NULL
+        WHEN DADOS.RECDESP = 1
+         AND DADOS.NUBCO_MOVIMENTO IS NOT NULL
+         AND DADOS.MBC_RECDESP = 1
             THEN 'RECEBIDO EM CONTA'
 
         ELSE 'OUTRA FORMA DE BAIXA'
     END AS FORMA_LIQUIDACAO,
 
     /*
-       DINHEIRO EFETIVAMENTE RECEBIDO
+       DINHEIRO EFETIVAMENTE RECEBIDO NA CONTA
+
+       Prioridade:
+       1. Valor real do movimento bancário;
+       2. Valor da baixa;
+       3. Valor líquido do título.
     */
     CASE
         WHEN DADOS.DHBAIXA IS NOT NULL
          AND DADOS.RECDESP = 1
          AND DADOS.TIPACERTO IS NULL
          AND DADOS.NUBCO_MOVIMENTO IS NOT NULL
+         AND DADOS.MBC_RECDESP = 1
         THEN ABS(
             NVL(
-                NULLIF(DADOS.VALOR_BAIXA, 0),
-                DADOS.VALOR_LIQUIDO
+                NULLIF(DADOS.VLRLANC, 0),
+                NVL(
+                    NULLIF(DADOS.VALOR_BAIXA, 0),
+                    DADOS.VALOR_LIQUIDO
+                )
             )
         )
 
@@ -96,7 +107,8 @@ SELECT
     END AS VALOR_COMPENSADO,
 
     /*
-       VALOR AINDA EM ABERTO
+       VALOR AINDA EM ABERTO,
+       INCLUINDO OS TÍTULOS VENCIDOS
     */
     CASE
         WHEN DADOS.DHBAIXA IS NULL
@@ -208,10 +220,11 @@ FROM (
 
             + NVL(
                 (
-                    SELECT ROUND(
-                        SUM(IMF.VALOR * IMF.TIPIMP),
-                        2
-                    )
+                    SELECT
+                        ROUND(
+                            SUM(IMF.VALOR * IMF.TIPIMP),
+                            2
+                        )
                     FROM TGFIMF IMF
                     WHERE IMF.NUFIN = FIN.NUFIN
                 ),
@@ -262,6 +275,13 @@ FROM (
     LEFT JOIN TGFPAR PAR
            ON PAR.CODPARC = FIN.CODPARC
 
+    /*
+       LEFT JOIN É OBRIGATÓRIO.
+
+       Recebimentos bancários normais podem não possuir
+       registro na TGFFRE. A subconsulta retorna apenas
+       acertos dos tipos C e V.
+    */
     LEFT JOIN (
         SELECT
             FRE.NUFIN,
@@ -289,6 +309,10 @@ FROM (
     ) ACER
            ON ACER.NUFIN = FIN.NUFIN
 
+    /*
+       Movimento financeiro efetivamente registrado
+       na conta bancária.
+    */
     LEFT JOIN TGFMBC MBC
            ON MBC.NUBCO = FIN.NUBCO
 
