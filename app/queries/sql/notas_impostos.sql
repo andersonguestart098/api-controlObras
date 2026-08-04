@@ -17,7 +17,6 @@ SELECT
     CASE
         WHEN CAB.CODTIPOPER IN (
             1101,
-            1107,
             1164,
             1166
         )
@@ -43,7 +42,6 @@ SELECT
     CASE
         WHEN CAB.CODTIPOPER IN (
             1101,
-            1107,
             1164,
             1166
         )
@@ -58,6 +56,7 @@ SELECT
         0
     ) AS VLRNOTA,
 
+    /* ICMS */
     ROUND(
         SUM(
             CASE
@@ -91,6 +90,7 @@ SELECT
         2
     ) AS VLR_ICMS,
 
+    /* PIS */
     ROUND(
         SUM(
             CASE
@@ -124,6 +124,7 @@ SELECT
         2
     ) AS VLR_PIS,
 
+    /* COFINS */
     ROUND(
         SUM(
             CASE
@@ -157,6 +158,7 @@ SELECT
         2
     ) AS VLR_COFINS,
 
+    /* PIS + COFINS */
     ROUND(
           SUM(
               CASE
@@ -175,6 +177,7 @@ SELECT
         2
     ) AS VLR_TRIBUTOS_FEDERAIS,
 
+    /* ICMS + PIS + COFINS */
     ROUND(
         SUM(
             CASE
@@ -243,19 +246,21 @@ LEFT JOIN TCSPRJ PRJ
 WHERE CAB.CODPROJ = {{CODPROJ}}
 
   AND (
+        /* Remessa futura */
         CAB.CODTIPOPER = 1009
 
         OR
 
+        /* Vendas normais */
         CAB.CODTIPOPER IN (
             1101,
-            1107,
             1164,
             1166
         )
 
         OR
 
+        /* Devoluções de vendas normais */
         (
             CAB.CODTIPOPER IN (
                 1201,

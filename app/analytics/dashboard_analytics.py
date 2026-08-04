@@ -87,6 +87,7 @@ class DashboardAnalytics:
             )
         )
 
+
         return {
             "vendas": (
                 VendasAnalytics.build_kpis(
