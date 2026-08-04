@@ -269,7 +269,10 @@ class SankhyaClient:
                     service_name,
                 )
 
-                await self._auth_service.refresh_token()
+                await self._auth_service.refresh_token(
+                    force=True,
+                    rejected_token=token,
+                )
 
                 return await self._execute_service_internal(
                     service_name=service_name,
@@ -491,3 +494,12 @@ def get_sankhya_client(
         )
 
     return _client
+
+
+async def close_sankhya_client() -> None:
+    global _client
+
+    if _client is not None:
+        await _client.close()
+
+    _client = None

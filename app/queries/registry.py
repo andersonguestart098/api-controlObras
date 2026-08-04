@@ -14,24 +14,57 @@ QUERY_REGISTRY: dict[
     SankhyaQueryDefinition,
 ] = {
         "pagamentos": SankhyaQueryDefinition(
-        code="pagamentos",
-        name="Pagamentos e títulos da obra",
-        filename="pagamentos.sql",
-        granularity=QueryGranularity.TITULO,
-        expected_columns=[
-            "NUNOTA",
-            "NUFIN",
-            "CODPROJ",
-            "VALOR_TITULO",
-            "VALOR_LIQUIDO",
-            "VALOR_BAIXA",
-            "FORMA_LIQUIDACAO",
-            "VALOR_RECEBIDO_EM_CONTA",
-            "VALOR_COMPENSADO",
-            "VALOR_EM_ABERTO",
-            "VALOR_VENCIDO",
-        ],
-    ),
+    code="pagamentos",
+    name="Pagamentos e títulos da obra",
+    filename="pagamentos.sql",
+    granularity=QueryGranularity.TITULO,
+    expected_columns=[
+        "NUNOTA",
+        "NUFIN",
+        "PARCELA",
+
+        "DTNEG",
+        "DTVENC",
+        "DHBAIXA",
+
+        "CODPROJ",
+        "PROJETO",
+
+        "CODTIPOPER",
+        "DESCROPER",
+
+        "CODTIPVENDA",
+        "TIPO_NEGOCIACAO",
+
+        "CODPARC",
+        "PARCEIRO",
+        "CGC_CPF",
+
+        "RECDESP",
+        "TIPO_FINANCEIRO",
+
+        "VALOR_TITULO",
+        "VALOR_LIQUIDO",
+        "VALOR_BAIXA",
+
+        "NUACERTO",
+        "TIPACERTO",
+
+        "FORMA_LIQUIDACAO",
+
+        "VALOR_RECEBIDO_EM_CONTA",
+        "VALOR_COMPENSADO",
+        "VALOR_EM_ABERTO",
+        "VALOR_VENCIDO",
+
+        "HISTORICO",
+        "VLRLANC",
+        "DTLANC",
+        "MBC_RECDESP",
+        "ORIGMOV",
+        "NUBCO",
+    ],
+),
 
     "notas": SankhyaQueryDefinition(
         code="notas",

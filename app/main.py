@@ -1,20 +1,20 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import (
-    CORSMiddleware,
-)
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     auth,
+    auth_routes,
     dashboard,
     health,
     queries,
 )
+
 from app.core.config import get_settings
-from app.db.mongodb import (
-    connect_mongodb,
-    disconnect_mongodb,
+from app.core.database import (
+    close_mongo,
+    connect_to_mongo,
 )
 from app.jobs.scheduler import (
     start_scheduler,
@@ -27,18 +27,23 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """
+    Controla a inicialização e o encerramento da aplicação.
+    """
+
     if settings.mongodb_enabled:
-        await connect_mongodb()
+        await connect_to_mongo()
 
     start_scheduler()
 
     try:
         yield
+
     finally:
         stop_scheduler()
 
         if settings.mongodb_enabled:
-            await disconnect_mongodb()
+            await close_mongo()
 
 
 app = FastAPI(
@@ -62,6 +67,11 @@ app.include_router(
 
 app.include_router(
     auth.router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    auth_routes.router,
     prefix="/api/v1",
 )
 

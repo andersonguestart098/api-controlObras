@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import Depends
@@ -23,6 +24,32 @@ logger = logging.getLogger(__name__)
 
 
 class SankhyaQueryService:
+    DATE_COLUMNS = frozenset(
+        {
+            "DTNEG",
+            "DTVENC",
+            "DHBAIXA",
+            "DTLANC",
+        }
+    )
+
+    DATE_TIME_FORMATS = (
+        "%d%m%Y %H:%M:%S.%f",
+        "%d%m%Y %H:%M:%S",
+
+        "%d/%m/%Y %H:%M:%S.%f",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+    )
+
+    DATE_FORMATS = (
+        "%d/%m/%Y",
+        "%Y-%m-%d",
+    )
+
     def __init__(
         self,
         client: SankhyaClient,
@@ -74,11 +101,25 @@ class SankhyaQueryService:
             )
             raise
 
-        frame = normalize_rows(
+        # O DbExplorer devolve datas normalmente no formato
+        # DD/MM/YYYY HH24:MI:SS. Convertemos para ISO antes de
+        # enviar as linhas ao normalizador Polars.
+        prepared_rows = self._prepare_date_columns(
             rows=raw_rows,
         )
 
+        frame = normalize_rows(
+            rows=prepared_rows,
+        )
+
         normalized_rows = frame_to_json_records(frame)
+
+        # Proteção adicional: caso o normalizador transforme uma
+        # data válida em null, restaura o valor ISO preparado.
+        normalized_rows = self._restore_date_columns(
+            normalized_rows=normalized_rows,
+            prepared_rows=prepared_rows,
+        )
 
         self._validate_columns(
             definition=definition,
@@ -470,6 +511,147 @@ class SankhyaQueryService:
             )
 
         return mapped_rows
+
+
+    @classmethod
+    def _prepare_date_columns(
+        cls,
+        *,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Converte as colunas conhecidas de data para ISO antes
+        da normalização geral.
+
+        Exemplos:
+        22/06/2026 00:00:00 -> 2026-06-22T00:00:00
+        22/06/2026          -> 2026-06-22
+
+        Um formato não reconhecido é preservado e registrado
+        no log, em vez de ser silenciosamente convertido em null.
+        """
+
+        prepared_rows: list[dict[str, Any]] = []
+
+        for row in rows:
+            prepared_row: dict[str, Any] = {}
+
+            for column, value in row.items():
+                column_name = str(column).strip()
+
+                if column_name.upper() in cls.DATE_COLUMNS:
+                    prepared_row[column_name] = (
+                        cls._normalize_date_value(
+                            value=value,
+                            column=column_name,
+                        )
+                    )
+                else:
+                    prepared_row[column_name] = value
+
+            prepared_rows.append(prepared_row)
+
+        return prepared_rows
+
+    @classmethod
+    def _restore_date_columns(
+        cls,
+        *,
+        normalized_rows: list[dict[str, Any]],
+        prepared_rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Garante que datas existentes na resposta original não sejam
+        perdidas caso o normalizador geral retorne null.
+        """
+
+        for normalized_row, prepared_row in zip(
+            normalized_rows,
+            prepared_rows,
+            strict=False,
+        ):
+            prepared_by_upper = {
+                str(column).strip().upper(): value
+                for column, value in prepared_row.items()
+            }
+
+            for column in cls.DATE_COLUMNS:
+                normalized_key = column.lower()
+                prepared_value = prepared_by_upper.get(column)
+
+                if prepared_value is None:
+                    continue
+
+                current_value = normalized_row.get(
+                    normalized_key
+                )
+
+                if current_value is None:
+                    normalized_row[
+                        normalized_key
+                    ] = prepared_value
+
+                elif isinstance(
+                    current_value,
+                    (datetime, date),
+                ):
+                    normalized_row[
+                        normalized_key
+                    ] = current_value.isoformat()
+
+        return normalized_rows
+
+    @classmethod
+    def _normalize_date_value(
+        cls,
+        *,
+        value: Any,
+        column: str,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value.isoformat()
+
+        if isinstance(value, date):
+            return value.isoformat()
+
+        text = str(value).strip()
+
+        if not text:
+            return None
+
+        # Tenta primeiro formatos ISO já normalizados.
+        try:
+            return datetime.fromisoformat(
+                text.replace(
+                    "Z",
+                    "+00:00",
+                )
+            ).isoformat()
+        except ValueError:
+            pass
+
+        for date_format in cls.DATE_TIME_FORMATS:
+            try:
+                return datetime.strptime(
+                    text,
+                    date_format,
+                ).isoformat()
+            except ValueError:
+                continue
+
+        for date_format in cls.DATE_FORMATS:
+            try:
+                return datetime.strptime(
+                    text,
+                    date_format,
+                ).date().isoformat()
+            except ValueError:
+                continue
+
+        return text
 
     @staticmethod
     def _validate_columns(
