@@ -504,6 +504,154 @@ class DashboardService:
             "itens": itens,
         }
 
+    async def get_compras_detalhes(
+            self,
+            filters: DashboardFilters,
+    ) -> dict[str, Any]:
+        """
+        Retorna os pedidos de compra com seus materiais
+        aninhados.
+
+        Essa consulta é separada dos KPIs para evitar
+        carregar todos os itens em cada atualização do
+        dashboard.
+        """
+
+        definition = self._get_definition(
+            "compras_itens"
+        )
+
+        rows = await self._query_service.execute_query(
+            definition,
+            filters,
+        )
+
+        compras_por_nunota: dict[
+            Any,
+            dict[str, Any],
+        ] = {}
+
+        for row in rows:
+            nunota = row.get("nunota")
+
+            if nunota is None:
+                continue
+
+            compra = compras_por_nunota.setdefault(
+                nunota,
+                {
+                    "nunota": nunota,
+                    "numnota": row.get("numnota"),
+                    "dtneg": row.get("dtneg"),
+
+                    "codproj": row.get("codproj"),
+                    "projeto": row.get("projeto"),
+
+                    "codparc": row.get("codparc"),
+                    "parceiro": row.get("parceiro"),
+                    "cgc_cpf": row.get("cgc_cpf"),
+
+                    "codtipoper": row.get(
+                        "codtipoper"
+                    ),
+                    "descroper": row.get(
+                        "descroper"
+                    ),
+                    "tipo_movimento": row.get(
+                        "tipo_movimento"
+                    ),
+
+                    "codtipvenda": row.get(
+                        "codtipvenda"
+                    ),
+                    "tipo_negociacao": row.get(
+                        "tipo_negociacao"
+                    ),
+
+                    "vlrnota": row.get(
+                        "vlrnota",
+                        0,
+                    ),
+                    "vlricms": row.get(
+                        "vlricms",
+                        0,
+                    ),
+                    "vlrpis": row.get(
+                        "vlrpis",
+                        0,
+                    ),
+                    "vlrcofins": row.get(
+                        "vlrcofins",
+                        0,
+                    ),
+
+                    "itens": [],
+                },
+            )
+
+            compra["itens"].append(
+                {
+                    "sequencia": row.get(
+                        "sequencia"
+                    ),
+                    "codprod": row.get(
+                        "codprod"
+                    ),
+                    "descrprod": row.get(
+                        "descrprod"
+                    ),
+                    "unidade": row.get(
+                        "unidade"
+                    ),
+                    "controle": row.get(
+                        "controle"
+                    ),
+
+                    "qtdneg": row.get(
+                        "qtdneg",
+                        0,
+                    ),
+                    "vlrunit": row.get(
+                        "vlrunit",
+                        0,
+                    ),
+                    "vlrtot": row.get(
+                        "vlrtot",
+                        0,
+                    ),
+                    "vlrdesc": row.get(
+                        "vlrdesc",
+                        0,
+                    ),
+                    "vlr_item_liquido": row.get(
+                        "vlr_item_liquido",
+                        0,
+                    ),
+
+                    "cussemicm": row.get(
+                        "cussemicm",
+                        0,
+                    ),
+                    "custo_total_item": row.get(
+                        "custo_total_item",
+                        0,
+                    ),
+                }
+            )
+
+        compras = list(
+            compras_por_nunota.values()
+        )
+
+        return {
+            "filters": filters.model_dump(
+                mode="json"
+            ),
+            "count_compras": len(compras),
+            "count_itens": len(rows),
+            "compras": compras,
+        }
+
     @staticmethod
     def _build_projeto(
         projeto_rows: list[dict[str, Any]],

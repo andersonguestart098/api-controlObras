@@ -1,0 +1,145 @@
+SELECT
+    CAB.NUNOTA,
+    CAB.NUMNOTA,
+    CAB.DTNEG,
+
+    CAB.CODPROJ,
+    PRJ.IDENTIFICACAO AS PROJETO,
+
+    CAB.CODPARC,
+    PAR.RAZAOSOCIAL AS PARCEIRO,
+    PAR.CGC_CPF,
+
+    CAB.CODTIPOPER,
+    TOP.DESCROPER,
+
+    'COMPRA' AS TIPO_MOVIMENTO,
+
+    CAB.CODTIPVENDA,
+    TPV.DESCRTIPVENDA AS TIPO_NEGOCIACAO,
+
+    NVL(
+        CAB.VLRNOTA,
+        0
+    ) AS VLRNOTA,
+
+    NVL(
+        CAB.VLRICMS,
+        0
+    ) AS VLRICMS,
+
+    NVL(
+        CAB.VLRPIS,
+        0
+    ) AS VLRPIS,
+
+    NVL(
+        CAB.VLRCOFINS,
+        0
+    ) AS VLRCOFINS,
+
+    /* ITEM */
+    ITE.SEQUENCIA,
+    ITE.CODPROD,
+    PRO.DESCRPROD,
+
+    ITE.CODVOL AS UNIDADE,
+    ITE.CONTROLE,
+
+    NVL(
+        ITE.QTDNEG,
+        0
+    ) AS QTDNEG,
+
+    NVL(
+        ITE.VLRUNIT,
+        0
+    ) AS VLRUNIT,
+
+    NVL(
+        ITE.VLRTOT,
+        0
+    ) AS VLRTOT,
+
+    NVL(
+        ITE.VLRDESC,
+        0
+    ) AS VLRDESC,
+
+    ROUND(
+        NVL(ITE.VLRTOT, 0)
+        - NVL(ITE.VLRDESC, 0),
+        2
+    ) AS VLR_ITEM_LIQUIDO,
+
+    /* CUSTO MAIS RECENTE */
+    NVL(
+        CUS.CUSSEMICM,
+        0
+    ) AS CUSSEMICM,
+
+    ROUND(
+        NVL(ITE.QTDNEG, 0)
+        * NVL(CUS.CUSSEMICM, 0),
+        2
+    ) AS CUSTO_TOTAL_ITEM
+
+FROM TGFCAB CAB
+
+INNER JOIN TGFITE ITE
+        ON ITE.NUNOTA = CAB.NUNOTA
+
+LEFT JOIN TGFPRO PRO
+       ON PRO.CODPROD = ITE.CODPROD
+
+LEFT JOIN TGFTOP TOP
+       ON TOP.CODTIPOPER = CAB.CODTIPOPER
+      AND TOP.DHALTER = CAB.DHTIPOPER
+
+LEFT JOIN TGFTPV TPV
+       ON TPV.CODTIPVENDA = CAB.CODTIPVENDA
+      AND TPV.DHALTER = CAB.DHTIPVENDA
+
+LEFT JOIN TGFPAR PAR
+       ON PAR.CODPARC = CAB.CODPARC
+
+LEFT JOIN TCSPRJ PRJ
+       ON PRJ.CODPROJ = CAB.CODPROJ
+
+LEFT JOIN (
+    SELECT
+        C.CODEMP,
+        C.CODPROD,
+
+        MAX(C.CUSSEMICM)
+            KEEP (
+                DENSE_RANK LAST
+                ORDER BY C.DTATUAL
+            ) AS CUSSEMICM
+
+    FROM TGFCUS C
+
+    GROUP BY
+        C.CODEMP,
+        C.CODPROD
+) CUS
+       ON CUS.CODEMP = CAB.CODEMP
+      AND CUS.CODPROD = ITE.CODPROD
+
+WHERE CAB.CODTIPOPER = 1301
+
+  /* Exclui Interno Obras */
+  AND NVL(
+        CAB.CODTIPVENDA,
+        0
+      ) <> 323
+
+  AND CAB.CODPROJ = {{CODPROJ}}
+
+/*FILTRO_DTNEG_INICIAL*/
+/*FILTRO_DTNEG_FINAL*/
+
+ORDER BY
+    CAB.DTNEG,
+    CAB.NUNOTA,
+    ITE.SEQUENCIA

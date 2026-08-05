@@ -63,6 +63,20 @@ async def get_movimentos(
         filters
     )
 
+@router.get(
+    "/compras",
+    summary="Pedidos de compra e materiais",
+)
+async def get_compras_detalhes(
+    filters: DashboardFilters = Depends(),
+    dashboard_service: DashboardService = Depends(
+        get_dashboard_service
+    ),
+) -> dict[str, Any]:
+    return await dashboard_service.get_compras_detalhes(
+        filters
+    )
+
 
 @router.post("/pagamentos")
 async def get_pagamentos(

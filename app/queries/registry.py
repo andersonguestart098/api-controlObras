@@ -127,6 +127,13 @@ QUERY_REGISTRY: dict[
         supports_period=False,
     ),
 
+        "compras_itens": SankhyaQueryDefinition(
+        code="compras_itens",
+        name="Pedidos de compra e materiais",
+        granularity="item",
+        filename="compras_itens.sql",
+    ),
+
     "bonificados": SankhyaQueryDefinition(
         code="bonificados",
         name="Bonificados vinculados à obra",
