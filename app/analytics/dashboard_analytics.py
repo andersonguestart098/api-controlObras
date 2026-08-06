@@ -25,21 +25,22 @@ class DashboardAnalytics:
 
     @classmethod
     def build_kpis(
-            cls,
-            *,
-            notas: list[dict[str, Any]],
-            itens_notas: list[dict[str, Any]],
-            interno_obras: list[dict[str, Any]],
-            devolucoes_interno_obras: list[
-                dict[str, Any]
-            ],
-            remessas: list[dict[str, Any]],
-            remessas_transporte: list[dict[str, Any]],
-            notas_impostos: list[dict[str, Any]],
-            compras: list[dict[str, Any]],
-            bonificados: list[dict[str, Any]],
-            mao_de_obra: list[dict[str, Any]],
-            pagamentos: list[dict[str, Any]],
+        cls,
+        *,
+        notas: list[dict[str, Any]],
+        itens_notas: list[dict[str, Any]],
+        interno_obras: list[dict[str, Any]],
+        devolucoes_interno_obras: list[
+            dict[str, Any]
+        ],
+        remessas: list[dict[str, Any]],
+        remessas_transporte: list[dict[str, Any]],
+        notas_impostos: list[dict[str, Any]],
+        compras: list[dict[str, Any]],
+        bonificados: list[dict[str, Any]],
+        mao_de_obra: list[dict[str, Any]],
+        pagamentos: list[dict[str, Any]],
+        despesas_gerais: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
         Monta todos os indicadores do dashboard.
@@ -50,11 +51,19 @@ class DashboardAnalytics:
 
         Remessas:
 
-        - Remessa futura   -> RemessasAnalytics
+        - Remessa futura -> RemessasAnalytics
         - Remessa transporte
           -> RemessasTransporteAnalytics
 
         As duas trabalham apenas com cabeçalho.
+
+        Despesas gerais:
+
+        - Total lançado;
+        - Total pago;
+        - Total em aberto;
+        - Total vencido;
+        - Quantidades por status.
         """
 
         devolucoes_interno_obras_kpis = (
@@ -72,10 +81,8 @@ class DashboardAnalytics:
             )
         )
 
-        impostos_kpis = (
-            ImpostosAnalytics.build_kpis(
-                notas_impostos
-            )
+        impostos_kpis = ImpostosAnalytics.build_kpis(
+            notas_impostos
         )
 
         impostos_kpis = (
@@ -86,7 +93,6 @@ class DashboardAnalytics:
                 ),
             )
         )
-
 
         return {
             "vendas": (
@@ -146,6 +152,11 @@ class DashboardAnalytics:
                 )
             ),
 
+            "despesas_gerais": (
+                cls._build_despesas_gerais_kpis(
+                    despesas_gerais
+                )
+            ),
         }
 
     @classmethod
@@ -161,8 +172,8 @@ class DashboardAnalytics:
 
         Também subtrai seus valores somente de:
 
-        - Interno Obras
-        - Consolidado líquido
+        - Interno Obras;
+        - Consolidado líquido.
 
         A categoria Devoluções gerais permanece
         sem alteração.
@@ -284,8 +295,8 @@ class DashboardAnalytics:
 
     @classmethod
     def _build_pagamentos_kpis(
-            cls,
-            rows: list[dict[str, Any]],
+        cls,
+        rows: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
         Monta os indicadores financeiros dos títulos
@@ -302,22 +313,7 @@ class DashboardAnalytics:
 
         # Evita somar o mesmo título mais de uma vez
         # caso algum JOIN duplique o NUFIN.
-        titulos_por_nufin: dict[Any, dict[str, Any]] = {}
-        titulos_sem_nufin: list[dict[str, Any]] = []
-
-        for row in rows:
-            nufin = row.get("nufin")
-
-            if nufin is None:
-                titulos_sem_nufin.append(row)
-                continue
-
-            titulos_por_nufin[nufin] = row
-
-        titulos = (
-                list(titulos_por_nufin.values())
-                + titulos_sem_nufin
-        )
+        titulos = cls._deduplicar_por_nufin(rows)
 
         recebidos_em_conta: list[dict[str, Any]] = []
         compensados: list[dict[str, Any]] = []
@@ -334,8 +330,8 @@ class DashboardAnalytics:
                 recebidos_em_conta.append(row)
 
             elif forma_liquidacao in (
-                    "QUITADO POR COMPENSACAO FINANCEIRA",
-                    "QUITADO COM CREDITO DE DEVOLUCAO",
+                "QUITADO POR COMPENSACAO FINANCEIRA",
+                "QUITADO COM CREDITO DE DEVOLUCAO",
             ):
                 compensados.append(row)
 
@@ -343,9 +339,9 @@ class DashboardAnalytics:
                 vencidos.append(row)
 
             elif forma_liquidacao in (
-                    "EM ABERTO",
-                    "EM_ABERTO",
-                    "ABERTO",
+                "EM ABERTO",
+                "EM_ABERTO",
+                "ABERTO",
             ):
                 em_aberto.append(row)
 
@@ -402,15 +398,15 @@ class DashboardAnalytics:
         quantidade_outras_baixas = len(outras_baixas)
 
         quantidade_quitados = (
-                quantidade_recebidos
-                + quantidade_compensados
-                + quantidade_outras_baixas
+            quantidade_recebidos
+            + quantidade_compensados
+            + quantidade_outras_baixas
         )
 
         valor_quitado_total = (
-                valor_recebido_em_conta
-                + valor_compensado
-                + valor_outras_baixas
+            valor_recebido_em_conta
+            + valor_compensado
+            + valor_outras_baixas
         )
 
         return {
@@ -470,12 +466,99 @@ class DashboardAnalytics:
                 valor_em_aberto
             ),
 
-        "quantidade_pagos": quantidade_recebidos,
-
-        "valor_pago": cls._money(
-            valor_recebido_em_conta
-        ),
+            # Compatibilidade com o frontend atual
+            "quantidade_pagos": quantidade_recebidos,
+            "valor_pago": cls._money(
+                valor_recebido_em_conta
+            ),
         }
+
+    @classmethod
+    def _build_despesas_gerais_kpis(
+        cls,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Monta os indicadores das despesas gerais
+        vinculadas ao projeto.
+
+        Cada NUFIN representa uma despesa/título.
+        A deduplicação evita somar a mesma despesa
+        mais de uma vez caso algum JOIN a repita.
+
+        O total da despesa é calculado por
+        VALOR_DESPESA. O movimento bancário é
+        apenas informativo e não entra na soma.
+        """
+
+        despesas = cls._deduplicar_por_nufin(rows)
+
+        pagas: list[dict[str, Any]] = []
+        vencidas: list[dict[str, Any]] = []
+        em_aberto: list[dict[str, Any]] = []
+
+        for row in despesas:
+            status = str(
+                row.get("status_despesa") or ""
+            ).strip().upper()
+
+            if status == "PAGA":
+                pagas.append(row)
+
+            elif status == "VENCIDA":
+                vencidas.append(row)
+
+            elif status in (
+                "EM ABERTO",
+                "EM_ABERTO",
+                "ABERTA",
+                "ABERTO",
+            ):
+                em_aberto.append(row)
+
+        total_despesas = cls._sum_field(
+            despesas,
+            "valor_despesa",
+        )
+
+        total_pago = cls._sum_field(
+            despesas,
+            "valor_pago",
+        )
+
+        total_em_aberto = cls._sum_field(
+            despesas,
+            "valor_em_aberto",
+        )
+
+        total_vencido = cls._sum_field(
+            despesas,
+            "valor_vencido",
+        )
+
+        return {
+            "quantidade_despesas": len(despesas),
+            "quantidade_pagas": len(pagas),
+            "quantidade_vencidas": len(vencidas),
+            "quantidade_em_aberto": len(em_aberto),
+
+            "total_despesas": cls._money(
+                total_despesas
+            ),
+
+            "total_pago": cls._money(
+                total_pago
+            ),
+
+            "total_em_aberto": cls._money(
+                total_em_aberto
+            ),
+
+            "total_vencido": cls._money(
+                total_vencido
+            ),
+        }
+
     @classmethod
     def _build_movimento_kpis(
         cls,
@@ -609,6 +692,32 @@ class DashboardAnalytics:
             kpis["custo_total"] = custo_formatado
 
         return kpis
+
+    @classmethod
+    def _deduplicar_por_nufin(
+        cls,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Mantém uma única linha para cada NUFIN.
+
+        Linhas sem NUFIN são preservadas para não
+        descartar dados válidos inesperadamente.
+        """
+
+        por_nufin: dict[Any, dict[str, Any]] = {}
+        sem_nufin: list[dict[str, Any]] = []
+
+        for row in rows:
+            nufin = row.get("nufin")
+
+            if nufin is None:
+                sem_nufin.append(row)
+                continue
+
+            por_nufin[nufin] = row
+
+        return list(por_nufin.values()) + sem_nufin
 
     @classmethod
     def _sum_field(

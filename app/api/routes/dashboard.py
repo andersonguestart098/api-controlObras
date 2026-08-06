@@ -92,6 +92,24 @@ async def get_pagamentos(
         filters
     )
 
+@router.post(
+    "/despesas-gerais",
+    summary=(
+        "Listar despesas gerais "
+        "vinculadas ao projeto"
+    ),
+)
+async def load_despesas_gerais(
+    filters: DashboardFilters,
+
+    service: DashboardService = Depends(
+        get_dashboard_service
+    ),
+) -> dict[str, Any]:
+    return await service.get_despesas_gerais(
+        filters
+    )
+
 @router.get(
     "/projects",
     response_model=list[ProjetoFiltroResponse],

@@ -180,6 +180,12 @@ class DashboardService:
             "mao_de_obra"
         )
 
+        despesas_gerais_definition = (
+            self._get_definition(
+                "despesas_gerais"
+            )
+        )
+
         (
             projeto_rows,
             notas_rows,
@@ -193,6 +199,7 @@ class DashboardService:
             bonificados_rows,
             mao_de_obra_rows,
             pagamentos_rows,
+            despesas_gerais_rows,
         ) = await asyncio.gather(
             self._query_service.execute_query(
                 projeto_definition,
@@ -254,6 +261,11 @@ class DashboardService:
                 filters,
             ),
 
+            self._query_service.execute_query(
+                despesas_gerais_definition,
+                filters,
+            ),
+
         )
 
         projeto = self._build_projeto(
@@ -282,6 +294,7 @@ class DashboardService:
             bonificados=bonificados_rows,
             mao_de_obra=mao_de_obra_rows,
             pagamentos=pagamentos_rows,
+            despesas_gerais=despesas_gerais_rows,
         )
 
         return {
@@ -395,6 +408,40 @@ class DashboardService:
             "count": len(pagamentos_rows),
 
             "pagamentos": pagamentos_rows,
+        }
+
+    async def get_despesas_gerais(
+        self,
+        filters: DashboardFilters,
+    ) -> dict[str, Any]:
+        """
+        Retorna as despesas gerais detalhadas
+        vinculadas ao projeto.
+
+        A carga é separada dos KPIs para permitir
+        listagem e tooltip no frontend sem alterar
+        o formato do restante do dashboard.
+        """
+
+        despesas_definition = self._get_definition(
+            "despesas_gerais"
+        )
+
+        despesas_rows = (
+            await self._query_service.execute_query(
+                despesas_definition,
+                filters,
+            )
+        )
+
+        return {
+            "filters": filters.model_dump(
+                mode="json"
+            ),
+
+            "count": len(despesas_rows),
+
+            "despesas": despesas_rows,
         }
 
     async def get_remessas_control(

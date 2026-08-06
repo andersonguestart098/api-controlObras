@@ -156,8 +156,13 @@ LEFT JOIN (
            ON CUS.CODEMP = CAB_CUSTO.CODEMP
           AND CUS.CODPROD = ITE.CODPROD
 
-    WHERE CAB_CUSTO.CODTIPOPER = 1301
+    WHERE CAB_CUSTO.CODTIPOPER IN (
+        1301,
+        1403,
+        1404
+    )
 
+      /* Exclui tipo de negociação Interno Obras */
       AND NVL(
             CAB_CUSTO.CODTIPVENDA,
             0
@@ -170,7 +175,11 @@ LEFT JOIN (
 ) CST
        ON CST.NUNOTA = CAB.NUNOTA
 
-WHERE CAB.CODTIPOPER = 1301
+WHERE CAB.CODTIPOPER IN (
+    1301,
+    1403,
+    1404
+)
 
   /* Exclui tipo de negociação Interno Obras */
   AND NVL(

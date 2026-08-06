@@ -126,9 +126,13 @@ LEFT JOIN (
        ON CUS.CODEMP = CAB.CODEMP
       AND CUS.CODPROD = ITE.CODPROD
 
-WHERE CAB.CODTIPOPER = 1301
+WHERE CAB.CODTIPOPER IN (
+    1301,
+    1403,
+    1404
+)
 
-  /* Exclui Interno Obras */
+  /* Exclui tipo de negociação Interno Obras */
   AND NVL(
         CAB.CODTIPVENDA,
         0

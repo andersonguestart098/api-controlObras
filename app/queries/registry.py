@@ -309,6 +309,48 @@ QUERY_REGISTRY: dict[
         supports_period=True,
     ),
 
+    "despesas_gerais": SankhyaQueryDefinition(
+        code="despesas_gerais",
+        name="Despesas gerais vinculadas à obra",
+        filename="despesas_gerais.sql",
+
+        # Cada linha representa um título financeiro,
+        # ou seja, uma despesa.
+        granularity=QueryGranularity.TITULO,
+
+        expected_columns=[
+            "NUFIN",
+            "NUNOTA",
+            "PARCELA",
+
+            "DTNEG",
+            "DTVENC",
+            "DHBAIXA",
+
+            "CODPROJ",
+            "PROJETO",
+
+            "CODNAT",
+            "NATUREZA",
+
+            "CODPARC",
+            "PARCEIRO",
+            "CGC_CPF",
+
+            "HISTORICO",
+
+            "VALOR_DESPESA",
+            "VALOR_PAGO",
+            "VALOR_EM_ABERTO",
+            "VALOR_VENCIDO",
+
+            "STATUS_DESPESA",
+        ],
+
+        supports_period=True,
+        supports_nunota=False,
+    ),
+
         "projeto": SankhyaQueryDefinition(
         code="projeto",
         name="Identificação do projeto",
