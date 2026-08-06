@@ -309,7 +309,7 @@ QUERY_REGISTRY: dict[
         supports_period=True,
     ),
 
-    "projeto": SankhyaQueryDefinition(
+        "projeto": SankhyaQueryDefinition(
         code="projeto",
         name="Identificação do projeto",
         filename="projeto.sql",
@@ -319,6 +319,22 @@ QUERY_REGISTRY: dict[
             "NOME_PROJETO",
         ],
         supports_period=False,
+    ),
+
+    "projetos_filtro": SankhyaQueryDefinition(
+        code="projetos_filtro",
+        name="Projetos disponíveis para filtro",
+        filename="projetos_filtro.sql",
+        granularity=QueryGranularity.PROJETO,
+        expected_columns=[
+            "CODPROJ",
+            "IDENTIFICACAO",
+            "ABREVIATURA",
+            "NOME_PROJETO",
+            "LABEL_PROJETO",
+        ],
+        supports_period=False,
+        supports_nunota=False,
     ),
 }
 

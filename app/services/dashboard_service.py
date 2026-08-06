@@ -8,6 +8,7 @@ from app.analytics.dashboard_analytics import (
 )
 from app.queries.registry import QUERY_REGISTRY
 from app.schemas.filters import DashboardFilters
+from app.schemas.projeto import ProjetoFiltroResponse
 from app.schemas.query import (
     SankhyaQueryDefinition,
 )
@@ -23,6 +24,78 @@ class DashboardService:
         query_service: SankhyaQueryService,
     ) -> None:
         self._query_service = query_service
+
+    async def listar_projetos_filtro(
+        self,
+    ) -> list[ProjetoFiltroResponse]:
+        """
+        Lista os projetos utilizados no Autocomplete
+        da barra de filtros do dashboard.
+        """
+
+        definition = self._get_definition(
+            "projetos_filtro"
+        )
+
+        # O execute_query exige DashboardFilters,
+        # embora projetos_filtro.sql não utilize
+        # CODPROJ nem período.
+        filtros_neutros = DashboardFilters(
+            codproj=1,
+            dtneg_inicial=None,
+            dtneg_final=None,
+        )
+
+        rows = await self._query_service.execute_query(
+            definition,
+            filtros_neutros,
+        )
+
+        projetos: list[ProjetoFiltroResponse] = []
+
+        for row in rows:
+            codproj_value = row.get("codproj")
+
+            try:
+                codproj = int(codproj_value)
+            except (TypeError, ValueError):
+                continue
+
+            identificacao = self._normalizar_texto(
+                row.get("identificacao")
+            )
+
+            abreviatura = self._normalizar_texto(
+                row.get("abreviatura")
+            )
+
+            nome_projeto = (
+                self._normalizar_texto(
+                    row.get("nome_projeto")
+                )
+                or identificacao
+                or abreviatura
+                or f"Projeto {codproj}"
+            )
+
+            label_projeto = (
+                self._normalizar_texto(
+                    row.get("label_projeto")
+                )
+                or f"{codproj} - {nome_projeto}"
+            )
+
+            projetos.append(
+                ProjetoFiltroResponse(
+                    codproj=codproj,
+                    identificacao=identificacao,
+                    abreviatura=abreviatura,
+                    nome_projeto=nome_projeto,
+                    label_projeto=label_projeto,
+                )
+            )
+
+        return projetos
 
     async def get_kpis(
         self,
@@ -708,6 +781,17 @@ class DashboardService:
             "codproj": codproj,
             "nome_projeto": nome_projeto,
         }
+
+    @staticmethod
+    def _normalizar_texto(
+        value: Any,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        texto = str(value).strip()
+
+        return texto or None
 
     @staticmethod
     def _get_definition(

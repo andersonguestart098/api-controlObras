@@ -11,6 +11,9 @@ from app.services.dashboard_service import (
     DashboardService,
     get_dashboard_service,
 )
+from app.schemas.projeto import (
+    ProjetoFiltroResponse,
+)
 
 
 router = APIRouter(
@@ -88,6 +91,18 @@ async def get_pagamentos(
     return await dashboard_service.get_pagamentos(
         filters
     )
+
+@router.get(
+    "/projects",
+    response_model=list[ProjetoFiltroResponse],
+    summary="Listar projetos para o filtro do dashboard",
+)
+async def listar_projetos_filtro(
+    service: DashboardService = Depends(
+        get_dashboard_service
+    ),
+) -> list[ProjetoFiltroResponse]:
+    return await service.listar_projetos_filtro()
 
 
 @router.post("/raw")
