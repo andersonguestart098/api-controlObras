@@ -438,6 +438,83 @@ class SankhyaClient:
 
         await asyncio.sleep(tempo_espera)
 
+    async def post_rest(
+        self,
+        url: str,
+        request_body: dict[str, Any],
+        *,
+        retry_on_unauthorized: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Executa POST em endpoints REST modernos do Sankhya.
+
+        Exemplo:
+            POST /v1/vendas/pedidos
+
+        Não realiza retry automático para falhas de escrita.
+        Isso evita que um timeout gere um segundo pedido caso
+        o Sankhya tenha processado a primeira requisição.
+        """
+
+        token = await self._auth_service.get_token()
+
+        try:
+            response = await self._client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                },
+                json=request_body,
+            )
+
+        except httpx.TimeoutException as exc:
+            raise SankhyaRequestError(
+                "Timeout ao executar endpoint REST do Sankhya. "
+                "A operação não será repetida automaticamente "
+                "para evitar duplicidade."
+            ) from exc
+
+        except httpx.RequestError as exc:
+            raise SankhyaRequestError(
+                "Erro de conexão ao executar endpoint REST "
+                "do Sankhya."
+            ) from exc
+
+        if (
+            response.status_code == 401
+            and retry_on_unauthorized
+        ):
+            logger.warning(
+                "Token Sankhya rejeitado no endpoint REST. "
+                "Renovando token e tentando novamente."
+            )
+
+            await self._auth_service.refresh_token(
+                force=True,
+                rejected_token=token,
+            )
+
+            return await self.post_rest(
+                url=url,
+                request_body=request_body,
+                retry_on_unauthorized=False,
+            )
+
+        data = self._parse_response_json(
+            response=response,
+            service_name=f"REST {url}",
+        )
+
+        if response.is_error:
+            raise SankhyaRequestError(
+                "Erro HTTP ao executar endpoint REST "
+                "do Sankhya.",
+                status_code=response.status_code,
+                response_data=data,
+            )
+
+        return data
+
     @staticmethod
     def _parse_response_json(
         *,
@@ -494,7 +571,6 @@ def get_sankhya_client(
         )
 
     return _client
-
 
 async def close_sankhya_client() -> None:
     global _client

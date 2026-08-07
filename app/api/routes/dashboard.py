@@ -3,16 +3,17 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_current_user
+from app.api.routes.importacao_mao_obra import (
+    router as importacao_mao_obra_router,
+)
 from app.api.routes.vexpenses_routes import (
     router as vexpenses_router,
 )
 from app.schemas.filters import DashboardFilters
+from app.schemas.projeto import ProjetoFiltroResponse
 from app.services.dashboard_service import (
     DashboardService,
     get_dashboard_service,
-)
-from app.schemas.projeto import (
-    ProjetoFiltroResponse,
 )
 
 
@@ -20,17 +21,25 @@ router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard"],
 
-    # Todas as rotas deste router exigem um
-    # access token JWT válido.
+    # Todas as rotas deste router exigem
+    # um access token JWT válido.
     dependencies=[
         Depends(get_current_user),
     ],
 )
 
 
-# As rotas da VExpenses também herdam automaticamente
+# As rotas da VExpenses herdam automaticamente
 # a dependência get_current_user do router de dashboard.
 router.include_router(vexpenses_router)
+
+
+# As rotas de importação de mão de obra também
+# ficam protegidas pelo mesmo JWT do dashboard.
+#
+# Prefixo final:
+# /dashboard/importacoes/mao-de-obra
+router.include_router(importacao_mao_obra_router)
 
 
 @router.post("/kpis")
@@ -66,6 +75,7 @@ async def get_movimentos(
         filters
     )
 
+
 @router.get(
     "/compras",
     summary="Pedidos de compra e materiais",
@@ -92,6 +102,7 @@ async def get_pagamentos(
         filters
     )
 
+
 @router.post(
     "/despesas-gerais",
     summary=(
@@ -101,7 +112,6 @@ async def get_pagamentos(
 )
 async def load_despesas_gerais(
     filters: DashboardFilters,
-
     service: DashboardService = Depends(
         get_dashboard_service
     ),
@@ -109,6 +119,7 @@ async def load_despesas_gerais(
     return await service.get_despesas_gerais(
         filters
     )
+
 
 @router.get(
     "/projects",
